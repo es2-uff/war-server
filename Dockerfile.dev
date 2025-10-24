@@ -1,0 +1,23 @@
+# BUILD
+FROM golang:1.25.0-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git
+
+COPY go.mod go.sum ./
+
+RUN go mod download
+RUN go mod verify
+
+COPY . .
+
+RUN GOOS=linux GOARCH=amd64 go build -ldflags "-w -s" -o ./tmp/es2-server ./cmd/main.go
+
+# RUN
+FROM scratch
+
+WORKDIR /app
+COPY --from=builder /app/tmp/es2-server .
+
+ENTRYPOINT ["/app/es2-server"]

@@ -1,0 +1,55 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ${REDIS_HOST}
+    ports:
+      - "${REDIS_PORT}:6379"
+    env_file: ".env"
+    networks:
+      - es2
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  dev:
+    image: es2_server:latest
+    profiles: [dev]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: es2_server
+    env_file: ".env"
+    ports:
+      - "${PORT}:${PORT}"
+    networks:
+      - es2
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  hot:
+    image: es2_server:latest
+    profiles: [hot]
+    build:
+      context: .
+      dockerfile: Dockerfile.hot
+    container_name: es2_server
+    env_file: ".env"
+    ports:
+      - "${PORT}:${PORT}"
+    networks:
+      - es2
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ${PWD}:/app
+
+networks:
+  es2:
+    name: es2_network
+
+
