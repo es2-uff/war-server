@@ -1,93 +1,163 @@
 package ws
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
-	"io"
-	"sync"
-
-	"github.com/labstack/echo/v4"
+	"log"
 )
 
 type Hub struct {
-	sync.RWMutex
+	// Room ID
+	ID string
 
-	Id string
+	// Game state for this room
+	GameState *GameState
 
+	// Registered clients
 	clients map[*Client]bool
 
-	// broadcast  chan *repositories.Message
-	register   chan *Client
-	unregister chan *Client
+	// Inbound messages from clients
+	broadcast chan []byte
 
-	// messages []repositories.Message
-	// mr       *repositories.MessageRepository
+	// Register requests from clients
+	register chan *Client
+
+	// Unregister requests from clients
+	unregister chan *Client
 }
 
-// func NewHub(chatroomId string, messages []repositories.Message, mr *repositories.MessageRepository) *Hub {
-// 	return &Hub{
-// 		Id:         chatroomId,
-// 		clients:    map[*Client]bool{},
-// 		broadcast:  make(chan *repositories.Message),
-// 		register:   make(chan *Client),
-// 		unregister: make(chan *Client),
-// 		messages:   messages,
-// 		mr:         mr,
-// 	}
-// }
+// NewHub creates a new hub for a game room
+func NewHub(roomID string) *Hub {
+	return &Hub{
+		ID:         roomID,
+		GameState:  NewGameState(roomID),
+		clients:    make(map[*Client]bool),
+		broadcast:  make(chan []byte),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+	}
+}
 
-// func (h *Hub) Run(c echo.Context) {
-//
-// 	for {
-// 		select {
-// 		case client := <-h.register:
-// 			h.Lock()
-// 			h.clients[client] = true
-// 			h.Unlock()
-// 			fmt.Printf("Client Registered: %s\n", client.id)
-//
-// 			client.send <- getMessageTemplate(c, h.messages)
-//
-// 		case client := <-h.unregister:
-// 			h.Lock()
-// 			if _, ok := h.clients[client]; ok {
-// 				close(client.send)
-// 				fmt.Printf("Client Unregistered: %s\n", client.id)
-// 				delete(h.clients, client)
-// 			}
-// 			h.Unlock()
-//
-// 		case msg := <-h.broadcast:
-// 			h.RLock()
-// 			h.messages = append(h.messages, *msg)
-//
-// 			err := h.mr.CreateMessage(msg.UserId, msg.Content, h.Id)
-//
-// 			if err != nil {
-// 				h.RUnlock()
-// 				return
-// 			}
-//
-// 			for client := range h.clients {
-// 				select {
-// 				case client.send <- getMessageTemplate(c, h.messages):
-// 				default:
-// 					close(client.send)
-// 					delete(h.clients, client)
-// 				}
-// 			}
-// 			h.RUnlock()
-// 		}
-// 	}
-// }
-//
-// func getMessageTemplate(c echo.Context, m []repositories.Message) []byte {
-//
-// 	var buf bytes.Buffer
-//
-// 	c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextHTML)
-//
-// 	inbox_views.MessageSection(m).Render(c.Request().Context(), io.Writer(&buf))
-//
-// 	return buf.Bytes()
-// }
+// Run starts the hub's main loop
+func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.clients[client] = true
+			fmt.Printf("Client Registered: %s in room %s\n", client.id, h.ID)
+
+			// Add player to game state
+			h.GameState.AddPlayer(client.id, client.id)
+
+			// Send current game state to new client
+			h.sendGameState(client)
+
+			// Broadcast updated state to all clients
+			h.broadcastGameState()
+
+		case client := <-h.unregister:
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				close(client.send)
+				fmt.Printf("Client Unregistered: %s from room %s\n", client.id, h.ID)
+
+				// Remove player from game state
+				h.GameState.RemovePlayer(client.id)
+
+				// Broadcast updated state to remaining clients
+				h.broadcastGameState()
+			}
+
+		case message := <-h.broadcast:
+			// Process the message and update game state
+			h.handleMessage(message)
+
+			// Broadcast updated game state to all clients
+			h.broadcastGameState()
+		}
+	}
+}
+
+// handleMessage processes incoming messages and updates game state
+func (h *Hub) handleMessage(message []byte) {
+	var msg map[string]interface{}
+	if err := json.Unmarshal(message, &msg); err != nil {
+		log.Printf("Error unmarshaling message: %v", err)
+		return
+	}
+
+	msgType, ok := msg["type"].(string)
+	if !ok {
+		return
+	}
+
+	switch msgType {
+	case "attack":
+		playerID, _ := msg["player_id"].(string)
+		from, _ := msg["from"].(string)
+		to, _ := msg["to"].(string)
+		armies, _ := msg["armies"].(float64)
+
+		h.GameState.Attack(playerID, from, to, int(armies))
+
+	case "deploy":
+		playerID, _ := msg["player_id"].(string)
+		territory, _ := msg["territory"].(string)
+		armies, _ := msg["armies"].(float64)
+
+		h.GameState.Deploy(playerID, territory, int(armies))
+
+	case "next_turn":
+		h.GameState.NextTurn()
+	}
+}
+
+// broadcastGameState sends the current game state to all connected clients
+func (h *Hub) broadcastGameState() {
+	h.GameState.RLock()
+	defer h.GameState.RUnlock()
+
+	message := map[string]interface{}{
+		"type":      "update",
+		"gameState": h.GameState,
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling game state: %v", err)
+		return
+	}
+
+	for client := range h.clients {
+		select {
+		case client.send <- data:
+		default:
+			close(client.send)
+			delete(h.clients, client)
+		}
+	}
+}
+
+// sendGameState sends the current game state to a specific client
+func (h *Hub) sendGameState(client *Client) {
+	h.GameState.RLock()
+	defer h.GameState.RUnlock()
+
+	message := map[string]interface{}{
+		"type":      "update",
+		"gameState": h.GameState,
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling game state: %v", err)
+		return
+	}
+
+	select {
+	case client.send <- data:
+	default:
+		close(client.send)
+		delete(h.clients, client)
+	}
+}

@@ -1,40 +1,52 @@
 package ws
 
 import (
-	"github.com/labstack/echo/v4"
+	"sync"
 )
 
-type WSRoomServer struct {
-	rooms map[*Hub]bool
-	mr    *repositories.MessageRepository
+type RoomServer struct {
+	sync.RWMutex
+	rooms map[string]*Hub
 }
 
-func NewWsSever(mr *repositories.MessageRepository) *WsServer {
-	return &WsServer{
-		mr:        mr,
-		chatrooms: make(map[*Hub]bool),
+func NewRoomServer() *RoomServer {
+	return &RoomServer{
+		rooms: make(map[string]*Hub),
 	}
 }
 
-func (w *WsServer) NewHub(c echo.Context, chatroomId string) *Hub {
+// GetOrCreateHub returns an existing hub or creates a new one
+func (rs *RoomServer) GetOrCreateHub(roomID string) *Hub {
+	rs.Lock()
+	defer rs.Unlock()
 
-	for k := range w.chatrooms {
-		if k.Id == chatroomId {
-			return k
-		}
+	// Check if hub already exists
+	if hub, exists := rs.rooms[roomID]; exists {
+		return hub
 	}
 
-	messages, err := w.mr.GetChatroomMessages(chatroomId)
+	// Create new hub
+	hub := NewHub(roomID)
+	rs.rooms[roomID] = hub
 
-	if err != nil {
-
-	}
-
-	hub := NewHub(chatroomId, messages, w.mr)
-
-	w.chatrooms[hub] = true
-
-	go hub.Run(c)
+	// Start the hub
+	go hub.Run()
 
 	return hub
+}
+
+// GetHub returns an existing hub or nil if not found
+func (rs *RoomServer) GetHub(roomID string) *Hub {
+	rs.RLock()
+	defer rs.RUnlock()
+
+	return rs.rooms[roomID]
+}
+
+// RemoveHub removes a hub from the server
+func (rs *RoomServer) RemoveHub(roomID string) {
+	rs.Lock()
+	defer rs.Unlock()
+
+	delete(rs.rooms, roomID)
 }

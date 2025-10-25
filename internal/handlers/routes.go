@@ -20,4 +20,7 @@ func SetupRoutes(
 	roomGroup := apiRoutes.Group("/rooms")
 	roomGroup.GET("/all", rh.ListRooms)
 	roomGroup.POST("/new", rh.CreateNewRoom)
+
+	// WebSocket endpoint
+	e.GET("/ws", rh.HandleWebSocket)
 }
