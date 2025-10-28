@@ -1,7 +1,11 @@
 package ws
 
 import (
+	"log"
 	"sync"
+
+	"es2.uff/war-server/internal/domain/room"
+	"github.com/google/uuid"
 )
 
 type RoomServer struct {
@@ -15,27 +19,22 @@ func NewRoomServer() *RoomServer {
 	}
 }
 
-// GetOrCreateHub returns an existing hub or creates a new one
 func (rs *RoomServer) GetOrCreateHub(roomID string) *Hub {
 	rs.Lock()
 	defer rs.Unlock()
 
-	// Check if hub already exists
 	if hub, exists := rs.rooms[roomID]; exists {
 		return hub
 	}
 
-	// Create new hub
-	hub := NewHub(roomID)
+	hub := NewHub(roomID, rs.handleOwnerLeft)
 	rs.rooms[roomID] = hub
 
-	// Start the hub
 	go hub.Run()
 
 	return hub
 }
 
-// GetHub returns an existing hub or nil if not found
 func (rs *RoomServer) GetHub(roomID string) *Hub {
 	rs.RLock()
 	defer rs.RUnlock()
@@ -43,10 +42,19 @@ func (rs *RoomServer) GetHub(roomID string) *Hub {
 	return rs.rooms[roomID]
 }
 
-// RemoveHub removes a hub from the server
 func (rs *RoomServer) RemoveHub(roomID string) {
 	rs.Lock()
 	defer rs.Unlock()
 
 	delete(rs.rooms, roomID)
+}
+
+func (rs *RoomServer) handleOwnerLeft(roomID string) {
+	log.Printf("Handling owner left for room %s", roomID)
+	rs.RemoveHub(roomID)
+
+	roomUUID, err := uuid.Parse(roomID)
+	if err == nil {
+		room.DeleteRoom(roomUUID)
+	}
 }

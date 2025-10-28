@@ -4,37 +4,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+
+	"es2.uff/war-server/internal/domain/room"
+	"github.com/google/uuid"
 )
 
 type Hub struct {
-	// Room ID
-	ID string
-
-	// Game state for this room
-	GameState *GameState
-
-	// Registered clients
-	clients map[*Client]bool
-
-	// Inbound messages from clients
-	broadcast chan []byte
-
-	// Register requests from clients
-	register chan *Client
-
-	// Unregister requests from clients
+	ID         string
+	GameState  *GameState
+	clients    map[*Client]bool
+	broadcast  chan []byte
+	register   chan *Client
 	unregister chan *Client
+	onOwnerLeft func(roomID string)
 }
 
-// NewHub creates a new hub for a game room
-func NewHub(roomID string) *Hub {
+func NewHub(roomID string, onOwnerLeft func(string)) *Hub {
 	return &Hub{
-		ID:         roomID,
-		GameState:  NewGameState(roomID),
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		ID:          roomID,
+		GameState:   NewGameState(roomID),
+		clients:     make(map[*Client]bool),
+		broadcast:   make(chan []byte),
+		register:    make(chan *Client),
+		unregister:  make(chan *Client),
+		onOwnerLeft: onOwnerLeft,
 	}
 }
 
@@ -44,15 +37,16 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
-			fmt.Printf("Client Registered: %s in room %s\n", client.id, h.ID)
+			fmt.Printf("Client Registered: %s (%s) in room %s\n", client.username, client.id, h.ID)
 
-			// Add player to game state
-			h.GameState.AddPlayer(client.id, client.id)
+			isOwner := client.isOwner
+			h.GameState.AddPlayer(client.id, client.username, isOwner)
 
-			// Send current game state to new client
+			if roomUUID, err := uuid.Parse(h.ID); err == nil {
+				room.UpdatePlayerCount(roomUUID, len(h.GameState.Players))
+			}
+
 			h.sendGameState(client)
-
-			// Broadcast updated state to all clients
 			h.broadcastGameState()
 
 		case client := <-h.unregister:
@@ -61,10 +55,21 @@ func (h *Hub) Run() {
 				close(client.send)
 				fmt.Printf("Client Unregistered: %s from room %s\n", client.id, h.ID)
 
-				// Remove player from game state
 				h.GameState.RemovePlayer(client.id)
 
-				// Broadcast updated state to remaining clients
+				if client.isOwner && h.GameState.Phase == "waiting" {
+					fmt.Printf("Owner left lobby %s before game started, closing lobby\n", h.ID)
+					h.broadcastLobbyClosing()
+					if h.onOwnerLeft != nil {
+						h.onOwnerLeft(h.ID)
+					}
+					return
+				}
+
+				if roomUUID, err := uuid.Parse(h.ID); err == nil {
+					room.UpdatePlayerCount(roomUUID, len(h.GameState.Players))
+				}
+
 				h.broadcastGameState()
 			}
 
@@ -92,19 +97,30 @@ func (h *Hub) handleMessage(message []byte) {
 	}
 
 	switch msgType {
+	case "player_ready":
+		playerID, _ := msg["player_id"].(string)
+		ready, _ := msg["ready"].(bool)
+		h.GameState.SetPlayerReady(playerID, ready)
+
+	case "start_game":
+		playerID, _ := msg["player_id"].(string)
+		if playerID == h.GameState.OwnerID && h.GameState.AllPlayersReady() {
+			h.GameState.StartGame()
+			h.broadcastGameStart()
+			return
+		}
+
 	case "attack":
 		playerID, _ := msg["player_id"].(string)
 		from, _ := msg["from"].(string)
 		to, _ := msg["to"].(string)
 		armies, _ := msg["armies"].(float64)
-
 		h.GameState.Attack(playerID, from, to, int(armies))
 
 	case "deploy":
 		playerID, _ := msg["player_id"].(string)
 		territory, _ := msg["territory"].(string)
 		armies, _ := msg["armies"].(float64)
-
 		h.GameState.Deploy(playerID, territory, int(armies))
 
 	case "next_turn":
@@ -138,7 +154,6 @@ func (h *Hub) broadcastGameState() {
 	}
 }
 
-// sendGameState sends the current game state to a specific client
 func (h *Hub) sendGameState(client *Client) {
 	h.GameState.RLock()
 	defer h.GameState.RUnlock()
@@ -159,5 +174,51 @@ func (h *Hub) sendGameState(client *Client) {
 	default:
 		close(client.send)
 		delete(h.clients, client)
+	}
+}
+
+func (h *Hub) broadcastLobbyClosing() {
+	message := map[string]interface{}{
+		"type":    "lobby_closed",
+		"message": "The lobby owner has left. Returning to lobby list.",
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling lobby closing message: %v", err)
+		return
+	}
+
+	for client := range h.clients {
+		select {
+		case client.send <- data:
+		default:
+			close(client.send)
+			delete(h.clients, client)
+		}
+	}
+}
+
+func (h *Hub) broadcastGameStart() {
+	message := map[string]interface{}{
+		"type":    "game_started",
+		"room_id": h.ID,
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling game start message: %v", err)
+		return
+	}
+
+	log.Printf("Broadcasting game start for room %s", h.ID)
+
+	for client := range h.clients {
+		select {
+		case client.send <- data:
+		default:
+			close(client.send)
+			delete(h.clients, client)
+		}
 	}
 }

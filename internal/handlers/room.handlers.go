@@ -10,14 +10,18 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type CreateRoomRequest struct { // TODO: Move it to a proper DTO package later
-	RoomName string `json:"room_name"`
+type CreateRoomRequest struct {
+	RoomName  string `json:"room_name"`
+	OwnerName string `json:"owner_name"`
 }
 
-type RoomResponse struct { // TODO: Move it to a proper DTO package later
-	RoomID   string `json:"room_id"`
-	RoomName string `json:"room_name"`
-	OwnerID  string `json:"owner_id"`
+type RoomResponse struct {
+	RoomID      string `json:"room_id"`
+	RoomName    string `json:"room_name"`
+	OwnerID     string `json:"owner_id"`
+	OwnerName   string `json:"owner_name"`
+	PlayerCount int    `json:"player_count"`
+	MaxPlayers  int    `json:"max_players"`
 }
 
 type RoomHandler struct {
@@ -37,18 +41,28 @@ func (rh *RoomHandler) CreateNewRoom(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid JSON format")
 	}
 
-	if r.RoomName == "" {
+	if r.RoomName == "" || r.OwnerName == "" {
 		return c.String(http.StatusBadRequest, "Invalid null entry")
 	}
 
-	nr, err := room.NewRoom(r.RoomName)
+	ownerID := uuid.New()
+	nr, err := room.NewRoom(r.RoomName, ownerID, r.OwnerName)
 
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal Error")
 	}
 
-	log.Printf("New room %s created succesfully", nr.RoomID)
-	return c.JSON(http.StatusOK, nr)
+	response := RoomResponse{
+		RoomID:      nr.RoomID.String(),
+		RoomName:    nr.Name,
+		OwnerID:     nr.OwnerID.String(),
+		OwnerName:   nr.OwnerName,
+		PlayerCount: nr.PlayerCount,
+		MaxPlayers:  nr.MaxPlayers,
+	}
+
+	log.Printf("New room %s created successfully by %s", nr.RoomID, nr.OwnerName)
+	return c.JSON(http.StatusOK, response)
 }
 
 func (rh *RoomHandler) ListRooms(c echo.Context) error {
@@ -59,19 +73,22 @@ func (rh *RoomHandler) ListRooms(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Internal Error")
 	}
 
-	if len(l) == 0 {
-		return c.NoContent(http.StatusOK)
-	}
-
 	for _, e := range l {
 		resp = append(resp, RoomResponse{
-			RoomID:   e.RoomID.String(),
-			OwnerID:  e.OwnerID.String(),
-			RoomName: e.Name,
+			RoomID:      e.RoomID.String(),
+			OwnerID:     e.OwnerID.String(),
+			RoomName:    e.Name,
+			OwnerName:   e.OwnerName,
+			PlayerCount: e.PlayerCount,
+			MaxPlayers:  e.MaxPlayers,
 		})
 	}
 
-	return c.JSON(http.StatusOK, l)
+	if resp == nil {
+		resp = []RoomResponse{}
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (rh *RoomHandler) JoinRoom(roomID uuid.UUID) error {
@@ -79,24 +96,27 @@ func (rh *RoomHandler) JoinRoom(roomID uuid.UUID) error {
 }
 
 func (rh *RoomHandler) HandleWebSocket(c echo.Context) error {
-	// Get room ID from query parameter or path parameter
 	roomID := c.QueryParam("room_id")
-	if roomID == "" {
-		roomID = c.Param("room_id")
-	}
-
 	if roomID == "" {
 		return c.String(http.StatusBadRequest, "room_id is required")
 	}
 
-	// Get or create hub for this room
-	hub := rh.roomServer.GetOrCreateHub(roomID)
+	username := c.QueryParam("username")
+	if username == "" {
+		return c.String(http.StatusBadRequest, "username is required")
+	}
 
-	// Generate a unique user ID for this connection
+	ownerID := c.QueryParam("owner_id")
 	userID := uuid.New().String()
+	isOwner := false
 
-	// Upgrade connection to WebSocket and serve
-	ws.ServeWs(hub, c.Response(), c.Request(), userID)
+	if ownerID != "" {
+		isOwner = true
+		userID = ownerID
+	}
+
+	hub := rh.roomServer.GetOrCreateHub(roomID)
+	ws.ServeWs(hub, c.Response(), c.Request(), userID, username, isOwner)
 
 	return nil
 }

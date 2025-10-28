@@ -9,11 +9,12 @@ import (
 )
 
 type Client struct {
-	id   string
-	hub  *Hub
-	conn *websocket.Conn
-
-	send chan []byte
+	id       string
+	username string
+	isOwner  bool
+	hub      *Hub
+	conn     *websocket.Conn
+	send     chan []byte
 }
 
 var upgrader = websocket.Upgrader{
@@ -31,7 +32,7 @@ const (
 	maxMessageSize = 512
 )
 
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId string) {
+func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId, username string, isOwner bool) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
@@ -40,10 +41,12 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId string) {
 	}
 
 	client := &Client{
-		id:   userId,
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 256),
+		id:       userId,
+		username: username,
+		isOwner:  isOwner,
+		hub:      hub,
+		conn:     conn,
+		send:     make(chan []byte, 256),
 	}
 
 	client.hub.register <- client
