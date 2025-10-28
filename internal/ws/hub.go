@@ -115,13 +115,17 @@ func (h *Hub) handleMessage(message []byte) {
 		from, _ := msg["from"].(string)
 		to, _ := msg["to"].(string)
 		armies, _ := msg["armies"].(float64)
-		h.GameState.Attack(playerID, from, to, int(armies))
+		if err := h.GameState.Attack(playerID, from, to, int(armies)); err != nil {
+			log.Printf("Error processing attack: %v", err)
+		}
 
 	case "deploy":
 		playerID, _ := msg["player_id"].(string)
 		territory, _ := msg["territory"].(string)
 		armies, _ := msg["armies"].(float64)
-		h.GameState.Deploy(playerID, territory, int(armies))
+		if err := h.GameState.Deploy(playerID, territory, int(armies)); err != nil {
+			log.Printf("Error processing deploy: %v", err)
+		}
 
 	case "next_turn":
 		h.GameState.NextTurn()
