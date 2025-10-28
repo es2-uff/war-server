@@ -9,11 +9,12 @@ import (
 )
 
 type Client struct {
-	id   string
-	hub  *Hub
-	conn *websocket.Conn
-
-	send chan []byte
+	id       string
+	username string
+	isOwner  bool
+	hub      *Hub
+	conn     *websocket.Conn
+	send     chan []byte
 }
 
 var upgrader = websocket.Upgrader{
@@ -31,7 +32,7 @@ const (
 	maxMessageSize = 512
 )
 
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId string) {
+func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId, username string, isOwner bool) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
@@ -40,10 +41,12 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId string) {
 	}
 
 	client := &Client{
-		id:   userId,
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 256),
+		id:       userId,
+		username: username,
+		isOwner:  isOwner,
+		hub:      hub,
+		conn:     conn,
+		send:     make(chan []byte, 256),
 	}
 
 	client.hub.register <- client
@@ -57,16 +60,22 @@ func (c *Client) writePump() {
 
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			log.Printf("Error closing connection in writePump: %v", err)
+		}
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("Error setting write deadline: %v", err)
+				return
+			}
 			if !ok {
-				// Hub closed the channel
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					log.Printf("Error writing close message: %v", err)
+				}
 				return
 			}
 
@@ -74,13 +83,21 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			if _, err := w.Write(message); err != nil {
+				log.Printf("Error writing message: %v", err)
+				return
+			}
 
-			// Add queued messages to the current websocket message
 			n := len(c.send)
 			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.send)
+				if _, err := w.Write([]byte{'\n'}); err != nil {
+					log.Printf("Error writing newline: %v", err)
+					return
+				}
+				if _, err := w.Write(<-c.send); err != nil {
+					log.Printf("Error writing queued message: %v", err)
+					return
+				}
 			}
 
 			if err := w.Close(); err != nil {
@@ -88,7 +105,10 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("Error setting write deadline for ping: %v", err)
+				return
+			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -97,18 +117,24 @@ func (c *Client) writePump() {
 }
 
 func (c *Client) readPump() {
-
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			log.Printf("Error closing connection in readPump: %v", err)
+		}
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
 
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Printf("Error setting read deadline: %v", err)
+		return
+	}
 
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			log.Printf("Error setting read deadline in pong handler: %v", err)
+		}
 		return nil
 	})
 
@@ -123,7 +149,6 @@ func (c *Client) readPump() {
 
 		log.Printf("Received message from client %s: %s\n", c.id, string(message))
 
-		// Send message to hub for broadcasting
 		c.hub.broadcast <- message
 	}
 }

@@ -5,12 +5,13 @@ import (
 	"time"
 )
 
-// Player represents a connected player in the game
 type Player struct {
 	ID       string `json:"id"`
 	Username string `json:"username"`
 	Armies   int    `json:"armies"`
 	Color    string `json:"color"`
+	IsReady  bool   `json:"is_ready"`
+	IsOwner  bool   `json:"is_owner"`
 }
 
 // Territory represents a territory on the game board
@@ -22,14 +23,14 @@ type Territory struct {
 	Adjacent []string `json:"adjacent"` // Adjacent territory IDs
 }
 
-// GameState represents the shared game state
 type GameState struct {
 	sync.RWMutex
 	RoomID      string                `json:"room_id"`
 	Players     map[string]*Player    `json:"players"`
 	Territories map[string]*Territory `json:"territories"`
-	CurrentTurn string                `json:"current_turn"` // Player ID whose turn it is
-	Phase       string                `json:"phase"`        // "deploy", "attack", "fortify"
+	CurrentTurn string                `json:"current_turn"`
+	Phase       string                `json:"phase"`
+	OwnerID     string                `json:"owner_id"`
 	LastUpdate  time.Time             `json:"last_update"`
 }
 
@@ -83,8 +84,7 @@ func NewGameState(roomID string) *GameState {
 	return gs
 }
 
-// AddPlayer adds a player to the game
-func (gs *GameState) AddPlayer(playerID, username string) {
+func (gs *GameState) AddPlayer(playerID, username string, isOwner bool) {
 	gs.Lock()
 	defer gs.Unlock()
 
@@ -94,16 +94,54 @@ func (gs *GameState) AddPlayer(playerID, username string) {
 	gs.Players[playerID] = &Player{
 		ID:       playerID,
 		Username: username,
-		Armies:   20, // Starting armies
+		Armies:   20,
 		Color:    color,
+		IsReady:  false,
+		IsOwner:  isOwner,
 	}
 
-	// If this is the first player, set them as current turn
+	if isOwner {
+		gs.OwnerID = playerID
+	}
+
 	if len(gs.Players) == 1 {
 		gs.CurrentTurn = playerID
-		gs.Phase = "deploy"
 	}
 
+	gs.LastUpdate = time.Now()
+}
+
+func (gs *GameState) SetPlayerReady(playerID string, ready bool) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	if player, exists := gs.Players[playerID]; exists {
+		player.IsReady = ready
+		gs.LastUpdate = time.Now()
+	}
+}
+
+func (gs *GameState) AllPlayersReady() bool {
+	gs.RLock()
+	defer gs.RUnlock()
+
+	if len(gs.Players) < 3 {
+		return false
+	}
+
+	for _, player := range gs.Players {
+		if !player.IsReady {
+			return false
+		}
+	}
+	return true
+}
+
+func (gs *GameState) StartGame() {
+	gs.Lock()
+	defer gs.Unlock()
+
+	gs.Phase = "deploy"
 	gs.LastUpdate = time.Now()
 }
 
