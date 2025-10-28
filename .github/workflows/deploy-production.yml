@@ -1,4 +1,4 @@
-name: CD - Deploy to Production (on Master Merge)
+name: CD - Deploy to Production (on main Merge)
 
 on:
   push:
@@ -25,8 +25,8 @@ jobs:
             cd ${{ secrets.EC2_PROJECT_PATH }}
             
             git fetch --all
-            git checkout master
-            git pull origin master
+            git checkout main
+            git pull origin main
             echo "Código atualizado. Reiniciando o serviço..."
             sudo systemctl restart war-server.service
             echo "Deploy em Produção concluído!"
