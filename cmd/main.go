@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-// TESTE DE CI
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
