@@ -1,0 +1,33 @@
+name: CD - Deploy to Staging (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'Branch para fazer deploy em staging'
+        required: true
+        default: 'staging'
+
+jobs:
+  deploy:
+    name: Deploy Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Conectar via SSH e fazer Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            echo "Conectado ao servidor. Iniciando deploy de Staging..."
+            # Usando seu secret de path
+            cd ${{ secrets.EC2_PROJECT_PATH }}
+            
+            git fetch --all
+            git checkout ${{ github.event.inputs.branch_name }}
+            git pull origin ${  { github.event.inputs.branch_name }}
+            echo "Código atualizado. Reiniciando o serviço..."
+            sudo systemctl restart war-server.service
+            echo "Deploy em Staging concluído!"
