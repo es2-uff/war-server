@@ -2,7 +2,7 @@ name: CD - Deploy to Production (on Master Merge)
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   deploy:
