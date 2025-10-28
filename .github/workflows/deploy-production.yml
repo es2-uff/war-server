@@ -1,0 +1,32 @@
+name: CD - Deploy to Production (on main Merge)
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+
+    concurrency: production
+
+    steps:
+      - name: Conectar via SSH e fazer Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          # --- Alterações aqui ---
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            echo "Conectado ao servidor. Iniciando deploy de Produção..."
+            # Usando seu secret de path
+            cd ${{ secrets.EC2_PROJECT_PATH }}
+            
+            git fetch --all
+            git checkout main
+            git pull origin main
+            echo "Código atualizado. Reiniciando o serviço..."
+            sudo systemctl restart war-server.service
+            echo "Deploy em Produção concluído!"
