@@ -1,30 +1,33 @@
 package room
 
 import (
+	"fmt"
+
+	"es2.uff/war-server/internal/domain/player"
 	"github.com/google/uuid"
 )
 
 var OpenRooms []*Room
 
 type Room struct {
-	RoomID     uuid.UUID
-	Name       string
-	OwnerID    uuid.UUID
-	OwnerName  string
-	players    []uuid.UUID
+	RoomID      uuid.UUID
+	Name        string
+	OwnerID     uuid.UUID
+	OwnerName   string
+	Players     []*player.Player
 	PlayerCount int
-	MaxPlayers int
+	MaxPlayers  int
 }
 
 func NewRoom(name string, ownerID uuid.UUID, ownerName string) (*Room, error) {
+
 	newRoom := &Room{
 		RoomID:      uuid.New(),
 		OwnerID:     ownerID,
 		OwnerName:   ownerName,
 		Name:        name,
 		PlayerCount: 0,
-		MaxPlayers:  6,
-		players:     []uuid.UUID{},
+		Players:     []*player.Player{},
 	}
 
 	OpenRooms = append(OpenRooms, newRoom)
@@ -53,9 +56,13 @@ func GetRoom(roomID uuid.UUID) *Room {
 	return nil
 }
 
-func UpdatePlayerCount(roomID uuid.UUID, count int) {
-	room := GetRoom(roomID)
-	if room != nil {
-		room.PlayerCount = count
+func AddPlayerToRoom(roomID uuid.UUID, player *player.Player) {
+	for _, room := range OpenRooms {
+		if room.RoomID == roomID {
+			room.Players = append(room.Players, player)
+			break
+		}
 	}
+
+	fmt.Println(OpenRooms)
 }

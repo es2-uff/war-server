@@ -1,18 +1,21 @@
 package ws
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"es2.uff/war-server/internal/domain/player"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
 type Client struct {
 	id       string
 	username string
-	isOwner  bool
-	hub      *Hub
+	ready    bool
+	hub      HubInterface
 	conn     *websocket.Conn
 	send     chan []byte
 }
@@ -32,27 +35,41 @@ const (
 	maxMessageSize = 512
 )
 
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userId, username string, isOwner bool) {
+func ServeWs(hub HubInterface, w http.ResponseWriter, r *http.Request, userId string) error {
 	conn, err := upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
 		log.Println(err)
-		return
+		return err
+	}
+
+	playerID, err := uuid.Parse(userId)
+
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	p := player.GetPlayer(playerID)
+
+	if p == nil {
+		return fmt.Errorf("Player not found.")
 	}
 
 	client := &Client{
-		id:       userId,
-		username: username,
-		isOwner:  isOwner,
+		id:       p.ID.String(),
+		username: p.Name,
+		ready:    false,
 		hub:      hub,
 		conn:     conn,
 		send:     make(chan []byte, 256),
 	}
 
-	client.hub.register <- client
+	client.hub.GetRegisterChan() <- client
 
 	go client.writePump()
 	go client.readPump()
+	return nil
 }
 
 func (c *Client) writePump() {
@@ -118,7 +135,7 @@ func (c *Client) writePump() {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.hub.GetUnregisterChan() <- c
 		if err := c.conn.Close(); err != nil {
 			log.Printf("Error closing connection in readPump: %v", err)
 		}
@@ -149,6 +166,6 @@ func (c *Client) readPump() {
 
 		log.Printf("Received message from client %s: %s\n", c.id, string(message))
 
-		c.hub.broadcast <- message
+		c.hub.GetBroadcastChan() <- message
 	}
 }

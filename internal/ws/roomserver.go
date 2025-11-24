@@ -4,30 +4,38 @@ import (
 	"log"
 	"sync"
 
+	"es2.uff/war-server/internal/domain/player"
 	"es2.uff/war-server/internal/domain/room"
 	"github.com/google/uuid"
 )
 
 type RoomServer struct {
 	sync.RWMutex
-	rooms map[string]*Hub
+	rooms map[string]*RoomHub
 }
 
 func NewRoomServer() *RoomServer {
 	return &RoomServer{
-		rooms: make(map[string]*Hub),
+		rooms: make(map[string]*RoomHub),
 	}
 }
 
-func (rs *RoomServer) GetOrCreateHub(roomID string) *Hub {
+func (rs *RoomServer) GetOrCreateHub(roomID string, userID string) *RoomHub {
 	rs.Lock()
 	defer rs.Unlock()
 
 	if hub, exists := rs.rooms[roomID]; exists {
+		playerUUID, _ := uuid.Parse(userID)
+		roomUUID, _ := uuid.Parse(roomID)
+		joiningPlayer := player.GetPlayer(playerUUID)
+
+		room.AddPlayerToRoom(roomUUID, joiningPlayer)
+
+		log.Printf("Player %s joined room %s", joiningPlayer.Name, roomID)
 		return hub
 	}
 
-	hub := NewHub(roomID, rs.handleOwnerLeft)
+	hub := NewRoomHub(roomID, rs.handleOwnerLeft)
 	rs.rooms[roomID] = hub
 
 	go hub.Run()
@@ -35,7 +43,7 @@ func (rs *RoomServer) GetOrCreateHub(roomID string) *Hub {
 	return hub
 }
 
-func (rs *RoomServer) GetHub(roomID string) *Hub {
+func (rs *RoomServer) GetHub(roomID string) *RoomHub {
 	rs.RLock()
 	defer rs.RUnlock()
 

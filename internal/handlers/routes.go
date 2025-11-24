@@ -9,6 +9,7 @@ import (
 func SetupRoutes(
 	e *echo.Echo,
 	rh *RoomHandler,
+	gh *GameHandler,
 ) {
 
 	apiRoutes := e.Group("/api/v1")
@@ -17,10 +18,17 @@ func SetupRoutes(
 		return c.String(http.StatusOK, "Healthy")
 	})
 
+	// Player routes
+	playerGroup := apiRoutes.Group("/players")
+	playerGroup.POST("/new", rh.CreatePlayer)
+
+	// Room routes
 	roomGroup := apiRoutes.Group("/rooms")
 	roomGroup.GET("/all", rh.ListRooms)
 	roomGroup.POST("/new", rh.CreateNewRoom)
+	roomGroup.GET("/ws", rh.HandleRoomWebSocket)
 
 	// WebSocket endpoint
-	e.GET("/ws", rh.HandleWebSocket)
+	gameGroup := apiRoutes.Group("/games")
+	gameGroup.GET("/ws", gh.HandleGameWebSocket)
 }
