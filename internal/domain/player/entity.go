@@ -8,8 +8,9 @@ import (
 var Players []*Player
 
 type Player struct {
-	ID   uuid.UUID
-	Name string
+	ID    uuid.UUID
+	Name  string
+	Color string
 
 	ArmyLeft    int
 	ObjectiveID objective.ObjectiveID
@@ -17,8 +18,9 @@ type Player struct {
 
 func NewPlayer(name string) (*Player, error) {
 	newPlayer := &Player{
-		ID:   uuid.New(),
-		Name: name,
+		ID:    uuid.New(),
+		Name:  name,
+		Color: "#fff",
 	}
 
 	Players = append(Players, newPlayer)

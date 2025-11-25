@@ -23,11 +23,12 @@ type Player struct {
 
 // Territory represents a territory on the game board
 type Territory struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Owner    string   `json:"owner"` // Player ID
-	Armies   int      `json:"armies"`
-	Adjacent []string `json:"adjacent"` // Adjacent territory IDs
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Owner      string   `json:"owner"` // Player ID
+	OwnerColor string   `json:"owner_color"`
+	Armies     int      `json:"armies"`
+	Adjacent   []string `json:"adjacent"` // Adjacent territory IDs
 }
 
 type GameState struct {
@@ -64,23 +65,24 @@ func (gs *GameState) StartGame() {
 			continue
 		}
 		domainPlayer := &player.Player{
-			ID:   playerUUID,
-			Name: gs.Players[playerID].Username,
+			ID:    playerUUID,
+			Name:  gs.Players[playerID].Username,
+			Color: gs.Players[playerID].Color,
 		}
 		domainPlayers = append(domainPlayers, domainPlayer)
 	}
 
-	// Initialize game territories
 	domainTerritories := game.InstantiateGameTerritories(domainPlayers)
 
 	gs.Territories = make([]*Territory, 0, len(domainTerritories))
 	for _, dt := range domainTerritories {
 		wsTerr := &Territory{
-			ID:       uuid.NewString(),
-			Name:     getTerritoryName(dt.TerritoryID),
-			Owner:    dt.OwnerID.String(),
-			Armies:   dt.ArmyQuantity,
-			Adjacent: []string{}, // TODO: implement adjacency
+			ID:         uuid.NewString(),
+			Name:       getTerritoryName(dt.TerritoryID),
+			Owner:      dt.OwnerID.String(),
+			OwnerColor: dt.OwnerColor,
+			Armies:     dt.ArmyQuantity,
+			Adjacent:   []string{}, // TODO: implement adjacency
 		}
 		gs.Territories = append(gs.Territories, wsTerr)
 	}

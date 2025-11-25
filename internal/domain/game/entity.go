@@ -39,6 +39,7 @@ func InstantiateGameTerritories(players []*player.Player) []*territory.Territory
 		randomTerritory := copiedTerritoriesList[randomIndex]
 
 		randomTerritory.OwnerID = players[playerIterator].ID
+		randomTerritory.OwnerColor = players[playerIterator].Color
 		randomTerritory.ArmyQuantity = 1
 
 		playerIterator++
