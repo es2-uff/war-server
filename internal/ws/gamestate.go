@@ -109,7 +109,7 @@ func getTerritoryName(territoryID int) string {
 		6: "England", 7: "Iceland", 8: "Sweden", 9: "Moscow", 10: "Germany", 11: "Poland", 12: "Portugal",
 		13: "Middle East", 14: "India", 15: "Vietnam", 16: "China", 17: "Aral", 18: "Omsk", 19: "Dudinka", 20: "Siberia", 21: "Tchita", 22: "Mongolia", 23: "Japan", 24: "Vladivostok",
 		25: "Australia", 26: "New Guinea", 27: "Sumatra", 28: "Borneo",
-		29: "Brazil", 30: "Argentina", 31: "Peru", 32: "Venezuela",
+		29: "Brazil", 30: "Argentina", 31: "Chile", 32: "Colombia",
 		33: "Mexico", 34: "California", 35: "New York", 36: "Labrador", 37: "Ottawa", 38: "Vancouver", 39: "Mackenzie", 40: "Alaska", 41: "Greenland",
 	}
 	if name, ok := names[territoryID]; ok {

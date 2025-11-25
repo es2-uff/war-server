@@ -52,16 +52,17 @@ const (
 
 	// South America territories
 	Brazil
-	Chile
 	Argentina
+	Chile
 	Colombia
 
 	// North America territories
 	Mexico
-	NewYork
 	California
-	Vancouver
+	NewYork
+	Labrador
 	Ottawa
+	Vancouver
 	Mackenzie
 	Alaska
 	Greenland
@@ -107,16 +108,17 @@ var TerritoryRegionMap = map[TerritoryID]Region{
 
 	// South America
 	Brazil:    SouthAmerica,
-	Chile:     SouthAmerica,
 	Argentina: SouthAmerica,
+	Chile:     SouthAmerica,
 	Colombia:  SouthAmerica,
 
 	// North America
 	Mexico:     NorthAmerica,
-	NewYork:    NorthAmerica,
 	California: NorthAmerica,
-	Vancouver:  NorthAmerica,
+	NewYork:    NorthAmerica,
+	Labrador:   NorthAmerica,
 	Ottawa:     NorthAmerica,
+	Vancouver:  NorthAmerica,
 	Mackenzie:  NorthAmerica,
 	Alaska:     NorthAmerica,
 	Greenland:  NorthAmerica,
@@ -132,7 +134,7 @@ var AllTerritories = []TerritoryID{
 	// Oceania
 	Australia, NewGuinea, Sumatra, Borneo,
 	// South America
-	Brazil, Chile, Argentina, Colombia,
+	Brazil, Argentina, Chile, Colombia,
 	// North America
-	Mexico, NewYork, California, Vancouver, Ottawa, Mackenzie, Alaska, Greenland,
+	Mexico, California, NewYork, Labrador, Ottawa, Vancouver, Mackenzie, Alaska, Greenland,
 }
