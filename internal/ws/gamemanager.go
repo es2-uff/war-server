@@ -2,7 +2,6 @@ package ws
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"sync"
 
@@ -108,9 +107,14 @@ func (g *Game) handleMessage(message []byte) {
 		return
 	}
 
+	playerID, _ := msg["player_id"].(string)
+
 	switch msgType {
+	case "finish_turn":
+		if err := g.GameState.NextTurn(playerID); err != nil {
+			log.Printf("Error processing attack: %v", err)
+		}
 	case "attack":
-		playerID, _ := msg["player_id"].(string)
 		from, _ := msg["from"].(string)
 		to, _ := msg["to"].(string)
 		armies, _ := msg["armies"].(float64)
@@ -119,15 +123,11 @@ func (g *Game) handleMessage(message []byte) {
 		}
 
 	case "deploy":
-		playerID, _ := msg["player_id"].(string)
 		territory, _ := msg["territory"].(string)
 		armies, _ := msg["armies"].(float64)
 		if err := g.GameState.Deploy(playerID, territory, int(armies)); err != nil {
 			log.Printf("Error processing deploy: %v", err)
 		}
-
-	case "next_turn":
-		g.GameState.NextTurn()
 	}
 }
 
@@ -137,7 +137,6 @@ func (g *Game) broadcastGameState() {
 
 	for client := range g.clients {
 		player := g.GameState.Players[client.id]
-		fmt.Println(client)
 		if player == nil {
 			continue
 		}

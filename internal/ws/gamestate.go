@@ -1,8 +1,8 @@
 package ws
 
 import (
+	"fmt"
 	"sync"
-	"time"
 
 	"es2.uff/war-server/internal/domain/game"
 	"es2.uff/war-server/internal/domain/objective"
@@ -36,10 +36,9 @@ type GameState struct {
 	RoomID      string             `json:"room_id"`
 	Players     map[string]*Player `json:"players"`
 	Territories []*Territory       `json:"territories"`
-	CurrentTurn string             `json:"current_turn"`
+	CurrentTurn string             `json:"current_turn"` // Player ID whose turn it is
 	Phase       string             `json:"phase"`
 	OwnerID     string             `json:"owner_id"`
-	LastUpdate  time.Time          `json:"last_update"`
 }
 
 func NewGameState(roomID string) *GameState {
@@ -48,7 +47,7 @@ func NewGameState(roomID string) *GameState {
 		Players:     make(map[string]*Player),
 		Territories: nil,
 		Phase:       "waiting",
-		LastUpdate:  time.Now(),
+		CurrentTurn: "",
 	}
 
 	return gs
@@ -101,7 +100,7 @@ func (gs *GameState) StartGame() {
 	}
 
 	gs.Phase = "deploy"
-	gs.LastUpdate = time.Now()
+	gs.CurrentTurn = domainPlayers[0].ID.String()
 }
 
 func getTerritoryName(territoryID int) string {
@@ -159,7 +158,6 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, arm
 		toTerritory.Armies -= armies
 	}
 
-	gs.LastUpdate = time.Now()
 	return nil
 }
 
@@ -192,36 +190,36 @@ func (gs *GameState) Deploy(playerID, territoryID string, armies int) error {
 		player.Armies -= armies
 	}
 
-	gs.LastUpdate = time.Now()
 	return nil
 }
 
-func (gs *GameState) NextTurn() {
+func (gs *GameState) NextTurn(senderID string) error {
 	gs.Lock()
 	defer gs.Unlock()
 
 	if len(gs.Players) == 0 {
-		return
+		return nil
 	}
 
-	// Find next player
+	if gs.CurrentTurn != senderID {
+		return fmt.Errorf("Not the turn owner")
+	}
+
 	found := false
 	for pid := range gs.Players {
 		if found {
 			gs.CurrentTurn = pid
-			gs.LastUpdate = time.Now()
-			return
+			return nil
 		}
 		if pid == gs.CurrentTurn {
 			found = true
 		}
 	}
 
-	// If we didn't find a next player, go back to first
 	for pid := range gs.Players {
 		gs.CurrentTurn = pid
 		break
 	}
 
-	gs.LastUpdate = time.Now()
+	return nil
 }
