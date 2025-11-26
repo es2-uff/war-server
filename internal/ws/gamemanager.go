@@ -110,6 +110,12 @@ func (g *Game) handleMessage(message []byte) {
 	playerID, _ := msg["player_id"].(string)
 
 	switch msgType {
+
+	case "finish_initial_deployment":
+		log.Printf("Player %s finished initial deployment", playerID)
+		if ok := g.GameState.CheckRoomFinishedInitialDeployment(playerID); ok == true {
+			log.Printf("Starting game")
+		}
 	case "finish_turn":
 		if err := g.GameState.NextTurn(playerID); err != nil {
 			log.Printf("Error processing attack: %v", err)

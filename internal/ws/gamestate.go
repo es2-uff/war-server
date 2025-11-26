@@ -2,6 +2,7 @@ package ws
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"es2.uff/war-server/internal/domain/game"
@@ -33,12 +34,12 @@ type Territory struct {
 
 type GameState struct {
 	sync.RWMutex
-	RoomID      string             `json:"room_id"`
-	Players     map[string]*Player `json:"players"`
-	Territories []*Territory       `json:"territories"`
-	CurrentTurn string             `json:"current_turn"` // Player ID whose turn it is
-	Phase       string             `json:"phase"`
-	OwnerID     string             `json:"owner_id"`
+	RoomID                    string             `json:"room_id"`
+	Players                   map[string]*Player `json:"players"`
+	FinishedInitialDeployment []string           `json:"finished_initial_deployment"`
+	Territories               []*Territory       `json:"territories"`
+	CurrentTurn               string             `json:"current_turn"` // Player ID whose turn it is
+	OwnerID                   string             `json:"owner_id"`
 }
 
 func NewGameState(roomID string) *GameState {
@@ -46,7 +47,6 @@ func NewGameState(roomID string) *GameState {
 		RoomID:      roomID,
 		Players:     make(map[string]*Player),
 		Territories: nil,
-		Phase:       "waiting",
 		CurrentTurn: "",
 	}
 
@@ -99,8 +99,7 @@ func (gs *GameState) StartGame() {
 		}
 	}
 
-	gs.Phase = "deploy"
-	gs.CurrentTurn = domainPlayers[0].ID.String()
+	gs.CurrentTurn = "ALL"
 }
 
 func getTerritoryName(territoryID int) string {
@@ -222,4 +221,25 @@ func (gs *GameState) NextTurn(senderID string) error {
 	}
 
 	return nil
+}
+
+func (gs *GameState) CheckRoomFinishedInitialDeployment(playerID string) bool {
+	gs.Lock()
+	defer gs.Unlock()
+
+	if slices.Contains(gs.FinishedInitialDeployment, playerID) {
+		if len(gs.FinishedInitialDeployment) == len(gs.Players) {
+			gs.CurrentTurn = playerID
+			return true
+		}
+	}
+
+	gs.FinishedInitialDeployment = append(gs.FinishedInitialDeployment, playerID)
+
+	if len(gs.FinishedInitialDeployment) == len(gs.Players) {
+		gs.CurrentTurn = playerID
+		return true
+	}
+
+	return false
 }
