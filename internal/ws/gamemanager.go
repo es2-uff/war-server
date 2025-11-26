@@ -127,11 +127,9 @@ func (g *Game) handleMessage(message []byte) {
 		if err := g.GameState.Attack(playerID, from, to, int(armies)); err != nil {
 			log.Printf("Error processing attack: %v", err)
 		}
-
-	case "deploy":
-		territory, _ := msg["territory"].(string)
-		armies, _ := msg["armies"].(float64)
-		if err := g.GameState.Deploy(playerID, territory, int(armies)); err != nil {
+	case "troop_assign":
+		territoryID, _ := msg["territory_id"].(string)
+		if err := g.GameState.Deploy(playerID, territoryID); err != nil {
 			log.Printf("Error processing deploy: %v", err)
 		}
 	}

@@ -160,16 +160,15 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, arm
 	return nil
 }
 
-func (gs *GameState) Deploy(playerID, territoryID string, armies int) error {
+func (gs *GameState) Deploy(playerID, territoryID string) error {
 	gs.Lock()
 	defer gs.Unlock()
 
 	player := gs.Players[playerID]
-	if player == nil || player.Armies < armies {
-		return nil // Not enough armies
+	if player == nil || player.Armies == 0 {
+		return nil
 	}
 
-	// Find territory
 	var territory *Territory
 	for _, t := range gs.Territories {
 		if t.ID == territoryID {
@@ -179,14 +178,12 @@ func (gs *GameState) Deploy(playerID, territoryID string, armies int) error {
 	}
 
 	if territory == nil {
-		return nil // Territory doesn't exist
+		return nil
 	}
 
-	// If territory is unclaimed, claim it
-	if territory.Owner == "" || territory.Owner == playerID {
-		territory.Owner = playerID
-		territory.Armies += armies
-		player.Armies -= armies
+	if territory.Owner == playerID {
+		territory.Armies += 1
+		player.Armies -= 1
 	}
 
 	return nil
@@ -204,22 +201,24 @@ func (gs *GameState) NextTurn(senderID string) error {
 		return fmt.Errorf("Not the turn owner")
 	}
 
-	found := false
+	playerIDs := make([]string, 0, len(gs.Players))
 	for pid := range gs.Players {
-		if found {
-			gs.CurrentTurn = pid
-			return nil
-		}
+		playerIDs = append(playerIDs, pid)
+	}
+
+	currentIndex := -1
+	for i, pid := range playerIDs {
 		if pid == gs.CurrentTurn {
-			found = true
+			currentIndex = i
+			break
 		}
 	}
 
-	for pid := range gs.Players {
-		gs.CurrentTurn = pid
-		break
-	}
+	nextIndex := (currentIndex + 1) % len(playerIDs)
+	nextPlayerID := playerIDs[nextIndex]
 
+	gs.CurrentTurn = nextPlayerID
+	gs.getTurnAdditionalTroopsLocked(nextPlayerID)
 	return nil
 }
 
@@ -238,8 +237,32 @@ func (gs *GameState) CheckRoomFinishedInitialDeployment(playerID string) bool {
 
 	if len(gs.FinishedInitialDeployment) == len(gs.Players) {
 		gs.CurrentTurn = playerID
+		gs.getTurnAdditionalTroopsLocked(playerID)
 		return true
 	}
 
 	return false
+}
+
+func (gs *GameState) GetTurnAdditionalTroops(playerID string) {
+	gs.Lock()
+	defer gs.Unlock()
+	gs.getTurnAdditionalTroopsLocked(playerID)
+}
+
+func (gs *GameState) getTurnAdditionalTroopsLocked(playerID string) {
+	player := gs.Players[playerID]
+	if player == nil {
+		return
+	}
+
+	territoriesOwned := 0
+
+	for _, t := range gs.Territories {
+		if t.Owner == playerID {
+			territoriesOwned++
+		}
+	}
+
+	player.Armies += territoriesOwned / 2
 }
