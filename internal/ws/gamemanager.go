@@ -57,7 +57,7 @@ func (gm *GameManager) GetOrCreateGame(roomID string) *Game {
 				game.GameState.Players[p.ID.String()] = &Player{
 					ID:       p.ID.String(),
 					Username: p.Name,
-					Armies:   20,
+					Armies:   0,
 					Color:    colors[i%len(colors)],
 					IsReady:  true,
 				}
@@ -110,12 +110,6 @@ func (g *Game) handleMessage(message []byte) {
 	playerID, _ := msg["player_id"].(string)
 
 	switch msgType {
-
-	case "finish_initial_deployment":
-		log.Printf("Player %s finished initial deployment", playerID)
-		if ok := g.GameState.CheckRoomFinishedInitialDeployment(playerID); ok == true {
-			log.Printf("Starting game")
-		}
 	case "finish_turn":
 		if err := g.GameState.NextTurn(playerID); err != nil {
 			log.Printf("Error processing attack: %v", err)

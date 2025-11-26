@@ -2,7 +2,6 @@ package ws
 
 import (
 	"fmt"
-	"slices"
 	"sync"
 
 	"es2.uff/war-server/internal/domain/game"
@@ -99,7 +98,8 @@ func (gs *GameState) StartGame() {
 		}
 	}
 
-	gs.CurrentTurn = "ALL"
+	gs.getTurnAdditionalTroopsLocked(domainPlayers[0].ID.String())
+	gs.CurrentTurn = domainPlayers[0].ID.String()
 }
 
 func getTerritoryName(territoryID int) string {
@@ -222,28 +222,6 @@ func (gs *GameState) NextTurn(senderID string) error {
 	return nil
 }
 
-func (gs *GameState) CheckRoomFinishedInitialDeployment(playerID string) bool {
-	gs.Lock()
-	defer gs.Unlock()
-
-	if slices.Contains(gs.FinishedInitialDeployment, playerID) {
-		if len(gs.FinishedInitialDeployment) == len(gs.Players) {
-			gs.CurrentTurn = playerID
-			return true
-		}
-	}
-
-	gs.FinishedInitialDeployment = append(gs.FinishedInitialDeployment, playerID)
-
-	if len(gs.FinishedInitialDeployment) == len(gs.Players) {
-		gs.CurrentTurn = playerID
-		gs.getTurnAdditionalTroopsLocked(playerID)
-		return true
-	}
-
-	return false
-}
-
 func (gs *GameState) GetTurnAdditionalTroops(playerID string) {
 	gs.Lock()
 	defer gs.Unlock()
@@ -264,5 +242,9 @@ func (gs *GameState) getTurnAdditionalTroopsLocked(playerID string) {
 		}
 	}
 
-	player.Armies += territoriesOwned / 2
+	if territoriesOwned < 6 {
+		player.Armies += 3
+	} else {
+		player.Armies += territoriesOwned / 2
+	}
 }
