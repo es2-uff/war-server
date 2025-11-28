@@ -20,17 +20,20 @@ func main() {
 	e := echo.New()
 
 	// Middleware
-	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
 	// Initialize WebSocket room server
 	roomServer := ws.NewRoomServer()
 
+	// Initialize game manager
+	gameManager := ws.NewGameManager()
+
 	// Initialize handlers
 	roomHandler := handlers.NewRoomHandler(roomServer)
+	gameHandler := handlers.NewGameHandler(gameManager)
 
-	handlers.SetupRoutes(e, roomHandler)
+	handlers.SetupRoutes(e, roomHandler, gameHandler)
 
 	e.Logger.Fatal(e.Start(fmt.Sprintf(":%s", port)))
 }

@@ -1,253 +1,335 @@
 package ws
 
 import (
+	"fmt"
+	"slices"
 	"sync"
-	"time"
+
+	"es2.uff/war-server/internal/domain/battle"
+	"es2.uff/war-server/internal/domain/game"
+	"es2.uff/war-server/internal/domain/objective"
+	"es2.uff/war-server/internal/domain/player"
+	"es2.uff/war-server/internal/domain/territory"
+	"github.com/google/uuid"
 )
 
 type Player struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Armies   int    `json:"armies"`
-	Color    string `json:"color"`
-	IsReady  bool   `json:"is_ready"`
-	IsOwner  bool   `json:"is_owner"`
+	ID            string `json:"id"`
+	Username      string `json:"username"`
+	Armies        int    `json:"armies"`
+	Color         string `json:"color"`
+	IsReady       bool   `json:"is_ready"`
+	IsOwner       bool   `json:"is_owner"`
+	ObjectiveID   int    `json:"objective_id"`
+	ObjectiveDesc string `json:"objective_desc"`
 }
 
 // Territory represents a territory on the game board
 type Territory struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Owner    string `json:"owner"` // Player ID
-	Armies   int    `json:"armies"`
-	Adjacent []string `json:"adjacent"` // Adjacent territory IDs
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Owner      string   `json:"owner"` // Player ID
+	OwnerColor string   `json:"owner_color"`
+	Armies     int      `json:"armies"`
+	Adjacent   []string `json:"adjacent"` // Adjacent territory IDs
 }
 
 type GameState struct {
 	sync.RWMutex
-	RoomID      string                `json:"room_id"`
-	Players     map[string]*Player    `json:"players"`
-	Territories map[string]*Territory `json:"territories"`
-	CurrentTurn string                `json:"current_turn"`
-	Phase       string                `json:"phase"`
-	OwnerID     string                `json:"owner_id"`
-	LastUpdate  time.Time             `json:"last_update"`
+	RoomID                    string             `json:"room_id"`
+	Players                   map[string]*Player `json:"players"`
+	FinishedInitialDeployment []string           `json:"finished_initial_deployment"`
+	Territories               []*Territory       `json:"territories"`
+	CurrentTurn               string             `json:"current_turn"` // Player ID whose turn it is
+	OwnerID                   string             `json:"owner_id"`
 }
 
-// NewGameState creates a new game state with initial territories
 func NewGameState(roomID string) *GameState {
 	gs := &GameState{
 		RoomID:      roomID,
 		Players:     make(map[string]*Player),
-		Territories: make(map[string]*Territory),
-		Phase:       "waiting",
-		LastUpdate:  time.Now(),
-	}
-
-	// Initialize some sample territories
-	gs.Territories["north"] = &Territory{
-		ID:       "north",
-		Name:     "Northern Lands",
-		Owner:    "",
-		Armies:   0,
-		Adjacent: []string{"center", "east"},
-	}
-	gs.Territories["center"] = &Territory{
-		ID:       "center",
-		Name:     "Central Plains",
-		Owner:    "",
-		Armies:   0,
-		Adjacent: []string{"north", "south", "east", "west"},
-	}
-	gs.Territories["south"] = &Territory{
-		ID:       "south",
-		Name:     "Southern Regions",
-		Owner:    "",
-		Armies:   0,
-		Adjacent: []string{"center", "west"},
-	}
-	gs.Territories["east"] = &Territory{
-		ID:       "east",
-		Name:     "Eastern Territories",
-		Owner:    "",
-		Armies:   0,
-		Adjacent: []string{"north", "center"},
-	}
-	gs.Territories["west"] = &Territory{
-		ID:       "west",
-		Name:     "Western Frontier",
-		Owner:    "",
-		Armies:   0,
-		Adjacent: []string{"center", "south"},
+		Territories: nil,
+		CurrentTurn: "",
 	}
 
 	return gs
-}
-
-func (gs *GameState) AddPlayer(playerID, username string, isOwner bool) {
-	gs.Lock()
-	defer gs.Unlock()
-
-	colors := []string{"red", "blue", "green", "yellow", "purple", "orange"}
-	color := colors[len(gs.Players)%len(colors)]
-
-	gs.Players[playerID] = &Player{
-		ID:       playerID,
-		Username: username,
-		Armies:   20,
-		Color:    color,
-		IsReady:  false,
-		IsOwner:  isOwner,
-	}
-
-	if isOwner {
-		gs.OwnerID = playerID
-	}
-
-	if len(gs.Players) == 1 {
-		gs.CurrentTurn = playerID
-	}
-
-	gs.LastUpdate = time.Now()
-}
-
-func (gs *GameState) SetPlayerReady(playerID string, ready bool) {
-	gs.Lock()
-	defer gs.Unlock()
-
-	if player, exists := gs.Players[playerID]; exists {
-		player.IsReady = ready
-		gs.LastUpdate = time.Now()
-	}
-}
-
-func (gs *GameState) AllPlayersReady() bool {
-	gs.RLock()
-	defer gs.RUnlock()
-
-	if len(gs.Players) < 3 {
-		return false
-	}
-
-	for _, player := range gs.Players {
-		if !player.IsReady {
-			return false
-		}
-	}
-	return true
 }
 
 func (gs *GameState) StartGame() {
 	gs.Lock()
 	defer gs.Unlock()
 
-	gs.Phase = "deploy"
-	gs.LastUpdate = time.Now()
-}
+	domainPlayers := make([]*player.Player, 0, len(gs.Players))
+	for playerID := range gs.Players {
+		playerUUID, err := uuid.Parse(playerID)
+		if err != nil {
+			continue
+		}
+		domainPlayer := &player.Player{
+			ID:    playerUUID,
+			Name:  gs.Players[playerID].Username,
+			Color: gs.Players[playerID].Color,
+		}
+		domainPlayers = append(domainPlayers, domainPlayer)
+	}
 
-// RemovePlayer removes a player from the game
-func (gs *GameState) RemovePlayer(playerID string) {
-	gs.Lock()
-	defer gs.Unlock()
+	domainTerritories := game.InstantiateGameTerritories(domainPlayers)
 
-	delete(gs.Players, playerID)
-	gs.LastUpdate = time.Now()
+	// First pass: create territories with IDs
+	territoryIDMap := make(map[int]string) // Maps domain TerritoryID to WebSocket UUID
+	gs.Territories = make([]*Territory, 0, len(domainTerritories))
 
-	// If the current turn player left, advance to next player
-	if gs.CurrentTurn == playerID && len(gs.Players) > 0 {
-		for pid := range gs.Players {
-			gs.CurrentTurn = pid
-			break
+	for _, dt := range domainTerritories {
+		wsID := uuid.NewString()
+		territoryIDMap[dt.TerritoryID] = wsID
+
+		wsTerr := &Territory{
+			ID:         wsID,
+			Name:       getTerritoryName(dt.TerritoryID),
+			Owner:      dt.OwnerID.String(),
+			OwnerColor: dt.OwnerColor,
+			Armies:     dt.ArmyQuantity,
+			Adjacent:   []string{}, // Will be populated in second pass
+		}
+		gs.Territories = append(gs.Territories, wsTerr)
+	}
+
+	// Second pass: populate adjacency using the TerritoryAdjacencyMap
+	for i, dt := range domainTerritories {
+		adjacentTerritoryIDs := territory.TerritoryAdjacencyMap[territory.TerritoryID(dt.TerritoryID)]
+		adjacentWSIDs := make([]string, 0, len(adjacentTerritoryIDs))
+
+		for _, adjID := range adjacentTerritoryIDs {
+			if wsID, exists := territoryIDMap[int(adjID)]; exists {
+				adjacentWSIDs = append(adjacentWSIDs, wsID)
+			}
+		}
+
+		gs.Territories[i].Adjacent = adjacentWSIDs
+	}
+
+	game.AssignObjectivesToPlayers(domainPlayers)
+
+	// Update WebSocket players with their objectives
+	for _, domainPlayer := range domainPlayers {
+		wsPlayer := gs.Players[domainPlayer.ID.String()]
+		if wsPlayer != nil {
+			wsPlayer.ObjectiveID = int(domainPlayer.ObjectiveID)
+			if objDetails, exists := objective.ObjectiveDetails[domainPlayer.ObjectiveID]; exists {
+				wsPlayer.ObjectiveDesc = objDetails.Description
+			}
 		}
 	}
+
+	gs.getTurnAdditionalTroopsLocked(domainPlayers[0].ID.String())
+	gs.CurrentTurn = domainPlayers[0].ID.String()
 }
 
-// Attack processes an attack action
-func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, armies int) error {
+func getTerritoryName(territoryID int) string {
+	// Map territory IDs to names
+	names := map[int]string{
+		0: "Algeria", 1: "Egypt", 2: "Sudan", 3: "Congo", 4: "South Africa", 5: "Madagascar",
+		6: "England", 7: "Iceland", 8: "Sweden", 9: "Moscow", 10: "Germany", 11: "Poland", 12: "Portugal",
+		13: "Middle East", 14: "India", 15: "Vietnam", 16: "China", 17: "Aral", 18: "Omsk", 19: "Dudinka", 20: "Siberia", 21: "Tchita", 22: "Mongolia", 23: "Japan", 24: "Vladivostok",
+		25: "Australia", 26: "New Guinea", 27: "Sumatra", 28: "Borneo",
+		29: "Brazil", 30: "Argentina", 31: "Chile", 32: "Colombia",
+		33: "Mexico", 34: "California", 35: "New York", 36: "Labrador", 37: "Ottawa", 38: "Vancouver", 39: "Mackenzie", 40: "Alaska", 41: "Greenland",
+	}
+	if name, ok := names[territoryID]; ok {
+		return name
+	}
+	return "Unknown"
+}
+
+func (gs *GameState) Move(playerID, fromTerritoryID, toTerritoryID string, movingArmies int) error {
 	gs.Lock()
 	defer gs.Unlock()
 
-	// Simple attack logic - attacker wins if they have more armies
-	fromTerritory := gs.Territories[fromTerritoryID]
-	toTerritory := gs.Territories[toTerritoryID]
+	var fromTerritory, toTerritory *Territory
+	for _, t := range gs.Territories {
+		if t.ID == fromTerritoryID {
+			fromTerritory = t
+		}
+		if t.ID == toTerritoryID {
+			toTerritory = t
+		}
+	}
+
+	if fromTerritory == nil || toTerritory == nil {
+		return fmt.Errorf("territory not found")
+	}
 
 	if fromTerritory.Owner != playerID {
-		return nil // Not the owner
+		return fmt.Errorf("not the owner of moving territory")
 	}
 
-	if fromTerritory.Armies <= armies {
-		return nil // Not enough armies
+	if toTerritory.Owner != playerID {
+		return fmt.Errorf("can only move troops to your own territory")
 	}
 
-	// Simple battle: compare armies
-	if armies > toTerritory.Armies {
-		// Attacker wins
-		toTerritory.Owner = playerID
-		toTerritory.Armies = armies - toTerritory.Armies
-		fromTerritory.Armies -= armies
-	} else {
-		// Defender wins
-		fromTerritory.Armies -= armies
-		toTerritory.Armies -= armies
+	if fromTerritory.Armies <= movingArmies {
+		return fmt.Errorf("not enough armies (must leave 1 for occupation)")
 	}
 
-	gs.LastUpdate = time.Now()
+	if movingArmies < 1 {
+		return fmt.Errorf("must move at least 1 army")
+	}
+
+	if !slices.Contains(fromTerritory.Adjacent, toTerritoryID) {
+		return fmt.Errorf("territories are not adjacent")
+	}
+
+	fromTerritory.Armies -= movingArmies
+	toTerritory.Armies += movingArmies
+
 	return nil
 }
 
-// Deploy adds armies to a territory
-func (gs *GameState) Deploy(playerID, territoryID string, armies int) error {
+func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, attackingArmies int) (bool, error) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	var fromTerritory, toTerritory *Territory
+	for _, t := range gs.Territories {
+		if t.ID == fromTerritoryID {
+			fromTerritory = t
+		}
+		if t.ID == toTerritoryID {
+			toTerritory = t
+		}
+	}
+
+	if fromTerritory == nil || toTerritory == nil {
+		return false, fmt.Errorf("territory not found")
+	}
+
+	if fromTerritory.Owner != playerID {
+		return false, fmt.Errorf("not the owner of attacking territory")
+	}
+
+	if toTerritory.Owner == playerID {
+		return false, fmt.Errorf("cannot attack your own territory")
+	}
+
+	if fromTerritory.Armies <= attackingArmies {
+		return false, fmt.Errorf("not enough armies (must leave 1 for occupation)")
+	}
+
+	if attackingArmies > 3 || attackingArmies < 1 {
+		return false, fmt.Errorf("attacking armies must be between 1 and 3")
+	}
+
+	if !slices.Contains(fromTerritory.Adjacent, toTerritoryID) {
+		return false, fmt.Errorf("territories are not adjacent")
+	}
+
+	defendingArmies := min(toTerritory.Armies, 3)
+
+	attackerDice := battle.RollDice(attackingArmies)
+	defenderDice := battle.RollDice(defendingArmies)
+
+	attackerLosses, defenderLosses := battle.CompareDice(attackerDice, defenderDice)
+	attackResult := attackerLosses < defenderLosses
+
+	fromTerritory.Armies -= attackerLosses
+	toTerritory.Armies -= defenderLosses
+
+	if toTerritory.Armies == 0 {
+		toTerritory.Owner = playerID
+		toTerritory.OwnerColor = fromTerritory.OwnerColor
+		toTerritory.Armies = attackingArmies - attackerLosses
+		fromTerritory.Armies -= (attackingArmies - attackerLosses)
+		return attackResult, nil
+	}
+
+	return attackResult, nil
+}
+
+func (gs *GameState) Deploy(playerID, territoryID string) error {
 	gs.Lock()
 	defer gs.Unlock()
 
 	player := gs.Players[playerID]
-	if player == nil || player.Armies < armies {
-		return nil // Not enough armies
+	if player == nil || player.Armies == 0 {
+		return nil
 	}
 
-	territory := gs.Territories[territoryID]
+	var territory *Territory
+	for _, t := range gs.Territories {
+		if t.ID == territoryID {
+			territory = t
+			break
+		}
+	}
+
 	if territory == nil {
-		return nil // Territory doesn't exist
+		return nil
 	}
 
-	// If territory is unclaimed, claim it
-	if territory.Owner == "" || territory.Owner == playerID {
-		territory.Owner = playerID
-		territory.Armies += armies
-		player.Armies -= armies
+	if territory.Owner == playerID {
+		territory.Armies += 1
+		player.Armies -= 1
 	}
 
-	gs.LastUpdate = time.Now()
 	return nil
 }
 
-// NextTurn advances to the next player's turn
-func (gs *GameState) NextTurn() {
+func (gs *GameState) NextTurn(senderID string) error {
 	gs.Lock()
 	defer gs.Unlock()
 
 	if len(gs.Players) == 0 {
+		return nil
+	}
+
+	if gs.CurrentTurn != senderID {
+		return fmt.Errorf("Not the turn owner")
+	}
+
+	playerIDs := make([]string, 0, len(gs.Players))
+	for pid := range gs.Players {
+		playerIDs = append(playerIDs, pid)
+	}
+
+	currentIndex := -1
+	for i, pid := range playerIDs {
+		if pid == gs.CurrentTurn {
+			currentIndex = i
+			break
+		}
+	}
+
+	nextIndex := (currentIndex + 1) % len(playerIDs)
+	nextPlayerID := playerIDs[nextIndex]
+
+	gs.CurrentTurn = nextPlayerID
+	gs.getTurnAdditionalTroopsLocked(nextPlayerID)
+	return nil
+}
+
+func (gs *GameState) GetTurnAdditionalTroops(playerID string) {
+	gs.Lock()
+	defer gs.Unlock()
+	gs.getTurnAdditionalTroopsLocked(playerID)
+}
+
+func (gs *GameState) getTurnAdditionalTroopsLocked(playerID string) {
+	player := gs.Players[playerID]
+	if player == nil {
 		return
 	}
 
-	// Find next player
-	found := false
-	for pid := range gs.Players {
-		if found {
-			gs.CurrentTurn = pid
-			gs.LastUpdate = time.Now()
-			return
-		}
-		if pid == gs.CurrentTurn {
-			found = true
+	territoriesOwned := 0
+
+	for _, t := range gs.Territories {
+		if t.Owner == playerID {
+			territoriesOwned++
 		}
 	}
 
-	// If we didn't find a next player, go back to first
-	for pid := range gs.Players {
-		gs.CurrentTurn = pid
-		break
+	if territoriesOwned < 6 {
+		player.Armies += 3
+	} else {
+		player.Armies += territoriesOwned / 2
 	}
-
-	gs.LastUpdate = time.Now()
 }

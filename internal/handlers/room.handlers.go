@@ -4,15 +4,30 @@ import (
 	"log"
 	"net/http"
 
+	"es2.uff/war-server/internal/domain/player"
 	"es2.uff/war-server/internal/domain/room"
 	"es2.uff/war-server/internal/ws"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
+type CreatePlayerRequest struct {
+	PlayerName string `json:"player_name"`
+}
+
+type CreatePlayerResponse struct {
+	PlayerID   string `json:"player_id"`
+	PlayerName string `json:"player_name"`
+}
+
 type CreateRoomRequest struct {
-	RoomName  string `json:"room_name"`
-	OwnerName string `json:"owner_name"`
+	RoomName string    `json:"room_name"`
+	OwnerID  uuid.UUID `json:"owner_id"`
+}
+
+type JoinRoomRequest struct {
+	RoomID   uuid.UUID `json:"room_id"`
+	PlayerID uuid.UUID `json:"player_id"`
 }
 
 type RoomResponse struct {
@@ -34,6 +49,27 @@ func NewRoomHandler(roomServer *ws.RoomServer) *RoomHandler {
 	}
 }
 
+func (rh *RoomHandler) CreatePlayer(c echo.Context) error {
+	r := new(CreatePlayerRequest)
+
+	if err := c.Bind(r); err != nil {
+		return c.String(http.StatusBadRequest, "Invalid JSON format")
+	}
+
+	newPlayer, err := player.NewPlayer(r.PlayerName)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Internal Error")
+	}
+
+	response := CreatePlayerResponse{
+		PlayerID:   newPlayer.ID.String(),
+		PlayerName: newPlayer.Name,
+	}
+
+	log.Printf("New player %s created with ID %s", newPlayer.Name, newPlayer.ID)
+	return c.JSON(http.StatusOK, response)
+}
+
 func (rh *RoomHandler) CreateNewRoom(c echo.Context) error {
 	r := new(CreateRoomRequest)
 
@@ -41,32 +77,27 @@ func (rh *RoomHandler) CreateNewRoom(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid JSON format")
 	}
 
-	if r.RoomName == "" || r.OwnerName == "" {
-		return c.String(http.StatusBadRequest, "Invalid null entry")
-	}
+	owner := player.GetPlayer(r.OwnerID)
 
-	ownerID := uuid.New()
-	nr, err := room.NewRoom(r.RoomName, ownerID, r.OwnerName)
-
+	nr, err := room.NewRoom(r.RoomName, owner.ID, owner.Name)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Internal Error")
 	}
 
+	// Add the owner to the room's player list
+	nr.Players = append(nr.Players, owner)
+	nr.PlayerCount = 1
+
 	response := RoomResponse{
-		RoomID:      nr.RoomID.String(),
-		RoomName:    nr.Name,
-		OwnerID:     nr.OwnerID.String(),
-		OwnerName:   nr.OwnerName,
-		PlayerCount: nr.PlayerCount,
-		MaxPlayers:  nr.MaxPlayers,
+		RoomID: nr.RoomID.String(),
 	}
 
-	log.Printf("New room %s created successfully by %s", nr.RoomID, nr.OwnerName)
+	log.Printf("New room %s created successfully by %s (owner added to players)", nr.RoomID, nr.OwnerName)
 	return c.JSON(http.StatusOK, response)
 }
 
 func (rh *RoomHandler) ListRooms(c echo.Context) error {
-	var resp []RoomResponse
+	resp := []RoomResponse{}
 	l, err := room.ListRooms()
 
 	if err != nil {
@@ -76,7 +107,6 @@ func (rh *RoomHandler) ListRooms(c echo.Context) error {
 	for _, e := range l {
 		resp = append(resp, RoomResponse{
 			RoomID:      e.RoomID.String(),
-			OwnerID:     e.OwnerID.String(),
 			RoomName:    e.Name,
 			OwnerName:   e.OwnerName,
 			PlayerCount: e.PlayerCount,
@@ -84,39 +114,19 @@ func (rh *RoomHandler) ListRooms(c echo.Context) error {
 		})
 	}
 
-	if resp == nil {
-		resp = []RoomResponse{}
-	}
-
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (rh *RoomHandler) JoinRoom(roomID uuid.UUID) error {
-	panic("Not implemented yet.")
-}
-
-func (rh *RoomHandler) HandleWebSocket(c echo.Context) error {
+func (rh *RoomHandler) HandleRoomWebSocket(c echo.Context) error {
 	roomID := c.QueryParam("room_id")
-	if roomID == "" {
-		return c.String(http.StatusBadRequest, "room_id is required")
+	userID := c.QueryParam("user_id")
+
+	hub := rh.roomServer.GetOrCreateHub(roomID, userID)
+	err := ws.ServeWs(hub, c.Response(), c.Request(), userID)
+
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Error HandleWebSocket")
 	}
-
-	username := c.QueryParam("username")
-	if username == "" {
-		return c.String(http.StatusBadRequest, "username is required")
-	}
-
-	ownerID := c.QueryParam("owner_id")
-	userID := uuid.New().String()
-	isOwner := false
-
-	if ownerID != "" {
-		isOwner = true
-		userID = ownerID
-	}
-
-	hub := rh.roomServer.GetOrCreateHub(roomID)
-	ws.ServeWs(hub, c.Response(), c.Request(), userID, username, isOwner)
 
 	return nil
 }
