@@ -184,6 +184,19 @@ func (g *Game) handleMessage(message []byte) {
 				Message:   fmt.Sprintf("%s moveu %d exércitos de %s para %s.", playerName, int(armiesFloat), fromName, toName),
 			})
 		}
+	case "trade":
+		card1, _ := msg["card_1"].(string)
+		card2, _ := msg["card_2"].(string)
+		card3, _ := msg["card_3"].(string)
+		if recieved, err := g.GameState.Trade(playerID, card1, card2, card3); err != nil {
+			log.Printf("Error processing trade: %v", err)
+		} else {
+			playerName := g.GameState.Players[playerID].Username
+			g.log = append(g.log, Gamelog{
+				Timestamp: time.Now(),
+				Message:   fmt.Sprintf("%s trocou cartas e recebeu %d exercitos.", playerName, recieved),
+			})
+		}
 	}
 }
 
