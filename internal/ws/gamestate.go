@@ -141,6 +141,50 @@ func getTerritoryName(territoryID int) string {
 	return "Unknown"
 }
 
+func (gs *GameState) Move(playerID, fromTerritoryID, toTerritoryID string, movingArmies int) error {
+	gs.Lock()
+	defer gs.Unlock()
+
+	var fromTerritory, toTerritory *Territory
+	for _, t := range gs.Territories {
+		if t.ID == fromTerritoryID {
+			fromTerritory = t
+		}
+		if t.ID == toTerritoryID {
+			toTerritory = t
+		}
+	}
+
+	if fromTerritory == nil || toTerritory == nil {
+		return fmt.Errorf("territory not found")
+	}
+
+	if fromTerritory.Owner != playerID {
+		return fmt.Errorf("not the owner of moving territory")
+	}
+
+	if toTerritory.Owner != playerID {
+		return fmt.Errorf("can only move troops to your own territory")
+	}
+
+	if fromTerritory.Armies <= movingArmies {
+		return fmt.Errorf("not enough armies (must leave 1 for occupation)")
+	}
+
+	if movingArmies < 1 {
+		return fmt.Errorf("must move at least 1 army")
+	}
+
+	if !slices.Contains(fromTerritory.Adjacent, toTerritoryID) {
+		return fmt.Errorf("territories are not adjacent")
+	}
+
+	fromTerritory.Armies -= movingArmies
+	toTerritory.Armies += movingArmies
+
+	return nil
+}
+
 func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, attackingArmies int) error {
 	gs.Lock()
 	defer gs.Unlock()

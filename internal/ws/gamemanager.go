@@ -126,6 +126,13 @@ func (g *Game) handleMessage(message []byte) {
 		if err := g.GameState.Deploy(playerID, territoryID); err != nil {
 			log.Printf("Error processing deploy: %v", err)
 		}
+	case "troop_move":
+		from, _ := msg["from"].(string)
+		to, _ := msg["to"].(string)
+		armiesFloat, _ := msg["moving_armies"].(float64)
+		if err := g.GameState.Move(playerID, from, to, int(armiesFloat)); err != nil {
+			log.Printf("Error processing move: %v", err)
+		}
 	}
 }
 
