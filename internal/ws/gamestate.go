@@ -21,6 +21,7 @@ type Player struct {
 	Color         string       `json:"color"`
 	IsReady       bool         `json:"is_ready"`
 	IsOwner       bool         `json:"is_owner"`
+	IsBot         bool         `json:"is_bot"`
 	ObjectiveID   int          `json:"objective_id"`
 	ObjectiveDesc string       `json:"objective_desc"`
 	CardsInHand   []*card.Card `json:"cards_in_hand"`
@@ -59,7 +60,7 @@ func NewGameState(roomID string) *GameState {
 	return gs
 }
 
-func (gs *GameState) StartGame() {
+func (gs *GameState) StartGame() string {
 	gs.Lock()
 	defer gs.Unlock()
 
@@ -128,8 +129,15 @@ func (gs *GameState) StartGame() {
 	gs.Deck = card.NewDeck()
 	gs.Deck.Shuffle()
 
-	gs.getTurnAdditionalTroopsLocked(domainPlayers[0].ID.String())
-	gs.CurrentTurn = domainPlayers[0].ID.String()
+	firstPlayerID := domainPlayers[0].ID.String()
+	gs.getTurnAdditionalTroopsLocked(firstPlayerID)
+	gs.CurrentTurn = firstPlayerID
+
+	// Return bot ID if first player is a bot
+	if gs.Players[firstPlayerID].IsBot {
+		return firstPlayerID
+	}
+	return ""
 }
 
 func (gs *GameState) Move(playerID, fromTerritoryID, toTerritoryID string, movingArmies int) error {
@@ -332,16 +340,16 @@ func (gs *GameState) Deploy(playerID, territoryID string) error {
 	return nil
 }
 
-func (gs *GameState) NextTurn(senderID string) error {
+func (gs *GameState) NextTurn(senderID string) (string, error) {
 	gs.Lock()
 	defer gs.Unlock()
 
 	if len(gs.Players) == 0 {
-		return nil
+		return "", nil
 	}
 
 	if gs.CurrentTurn != senderID {
-		return fmt.Errorf("Not the turn owner")
+		return "", fmt.Errorf("Not the turn owner")
 	}
 
 	playerIDs := make([]string, 0, len(gs.Players))
@@ -362,7 +370,12 @@ func (gs *GameState) NextTurn(senderID string) error {
 
 	gs.CurrentTurn = nextPlayerID
 	gs.getTurnAdditionalTroopsLocked(nextPlayerID)
-	return nil
+
+	// Return bot ID if next player is a bot
+	if gs.Players[nextPlayerID].IsBot {
+		return nextPlayerID, nil
+	}
+	return "", nil
 }
 
 func (gs *GameState) GetTurnAdditionalTroops(playerID string) {

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"es2.uff/war-server/internal/domain/bot"
 	"es2.uff/war-server/internal/domain/room"
 	"github.com/google/uuid"
 )
@@ -62,6 +63,7 @@ func (gm *GameManager) GetOrCreateGame(roomID string) *Game {
 			colors := []string{"#FF0000", "#0066FF", "#00CC00", "#FFD700", "#9933FF", "#FF6600"}
 
 			// Add players to game state
+			playerCount := 0
 			for i, p := range r.Players {
 				game.GameState.Players[p.ID.String()] = &Player{
 					ID:       p.ID.String(),
@@ -70,9 +72,37 @@ func (gm *GameManager) GetOrCreateGame(roomID string) *Game {
 					Color:    colors[i%len(colors)],
 					IsReady:  true,
 				}
+				playerCount++
 			}
 
-			game.GameState.StartGame()
+			if playerCount < 3 {
+				botsToAdd := 3 - playerCount
+
+				for i := range botsToAdd {
+					newBot := bot.NewBot(
+						fmt.Sprintf("Bot %d", i+1),
+						colors[(playerCount+i)%len(colors)],
+					)
+					game.GameState.Players[newBot.ID.String()] = &Player{
+						ID:       newBot.ID.String(),
+						Username: newBot.Name,
+						Armies:   0,
+						Color:    newBot.Color,
+						IsReady:  true,
+						IsBot:    true,
+					}
+				}
+			}
+
+			botID := game.GameState.StartGame()
+
+			// If first player is bot, schedule bot turn
+			if botID != "" {
+				go func() {
+					time.Sleep(2 * time.Second) // Wait for clients to connect
+					game.executeBotTurn(botID)
+				}()
+			}
 		}
 	}
 
@@ -120,14 +150,21 @@ func (g *Game) handleMessage(message []byte) {
 
 	switch msgType {
 	case "finish_turn":
-		if err := g.GameState.NextTurn(playerID); err != nil {
+		botID, err := g.GameState.NextTurn(playerID)
+		if err != nil {
 			log.Printf("Error processing next turn: %v", err)
+		} else {
+			playerName := g.GameState.Players[playerID].Username
+			g.log = append(g.log, Gamelog{
+				Timestamp: time.Now(),
+				Message:   fmt.Sprintf("%s finalizou o turno.", playerName),
+			})
+
+			// If next player is bot, schedule bot turn
+			if botID != "" {
+				go g.executeBotTurn(botID)
+			}
 		}
-		playerName := g.GameState.Players[playerID].Username
-		g.log = append(g.log, Gamelog{
-			Timestamp: time.Now(),
-			Message:   fmt.Sprintf("%s finalizou o turno.", playerName),
-		})
 	case "attack":
 		from, _ := msg["from"].(string)
 		to, _ := msg["to"].(string)
