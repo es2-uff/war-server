@@ -96,7 +96,6 @@ func (gs *GameState) StartGame() string {
 			Adjacent:   []string{},
 		}
 
-		fmt.Println(*wsTerr)
 		gs.Territories = append(gs.Territories, wsTerr)
 	}
 

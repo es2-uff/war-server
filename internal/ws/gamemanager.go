@@ -62,7 +62,6 @@ func (gm *GameManager) GetOrCreateGame(roomID string) *Game {
 		if r != nil && len(r.Players) > 0 {
 			colors := []string{"#FF0000", "#0066FF", "#00CC00", "#FFD700", "#9933FF", "#FF6600"}
 
-			// Add players to game state
 			playerCount := 0
 			for i, p := range r.Players {
 				game.GameState.Players[p.ID.String()] = &Player{
@@ -96,7 +95,6 @@ func (gm *GameManager) GetOrCreateGame(roomID string) *Game {
 
 			botID := game.GameState.StartGame()
 
-			// If first player is bot, schedule bot turn
 			if botID != "" {
 				go func() {
 					time.Sleep(2 * time.Second) // Wait for clients to connect
@@ -173,8 +171,8 @@ func (g *Game) handleMessage(message []byte) {
 			log.Printf("Error processing attack: %v", err)
 		} else {
 			playerName := g.GameState.Players[playerID].Username
-			fromName := g.getTerritoryName(from)
-			toName := g.getTerritoryName(to)
+			fromName := g.getTerritoryNameByID(from)
+			toName := g.getTerritoryNameByID(to)
 			logMessage := ""
 
 			if victory {
@@ -200,7 +198,7 @@ func (g *Game) handleMessage(message []byte) {
 			log.Printf("Error processing deploy: %v", err)
 		} else {
 			playerName := g.GameState.Players[playerID].Username
-			territoryName := g.getTerritoryName(territoryID)
+			territoryName := g.getTerritoryNameByID(territoryID)
 			g.log = append(g.log, Gamelog{
 				Timestamp: time.Now(),
 				Message:   fmt.Sprintf("%s posicionou 1 exército em %s.", playerName, territoryName),
@@ -214,8 +212,8 @@ func (g *Game) handleMessage(message []byte) {
 			log.Printf("Error processing move: %v", err)
 		} else {
 			playerName := g.GameState.Players[playerID].Username
-			fromName := g.getTerritoryName(from)
-			toName := g.getTerritoryName(to)
+			fromName := g.getTerritoryNameByID(from)
+			toName := g.getTerritoryNameByID(to)
 			g.log = append(g.log, Gamelog{
 				Timestamp: time.Now(),
 				Message:   fmt.Sprintf("%s moveu %d exércitos de %s para %s.", playerName, int(armiesFloat), fromName, toName),
@@ -280,7 +278,7 @@ func (g *Game) GetBroadcastChan() chan []byte {
 	return g.broadcast
 }
 
-func (g *Game) getTerritoryName(territoryID string) string {
+func (g *Game) getTerritoryNameByID(territoryID string) string {
 	g.GameState.RLock()
 	defer g.GameState.RUnlock()
 
@@ -289,5 +287,5 @@ func (g *Game) getTerritoryName(territoryID string) string {
 			return t.Name
 		}
 	}
-	return "Unknown"
+	return territoryID
 }

@@ -37,22 +37,13 @@ func (g *Game) botDeployPhase(botID string) {
 			break
 		}
 
-		borderTerritories := g.getBotBorderTerritories(botID)
-		var territory *Territory
-		if len(borderTerritories) > 0 {
-			territory = borderTerritories[rand.Intn(len(borderTerritories))]
-		} else {
-			territory = ownedTerritories[rand.Intn(len(ownedTerritories))]
-		}
-
-		if err := g.GameState.Deploy(botID, territory.ID); err != nil {
-			log.Printf("Bot deploy error: %v", err)
-			break
-		}
+		territory := ownedTerritories[rand.Intn(len(ownedTerritories))]
 
 		g.sendBotAction("troop_assign", botID, map[string]any{
 			"territory_id": territory.ID,
 		})
+
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -67,17 +58,27 @@ func (g *Game) botAttackPhase(botID string) {
 		attackIdx := rand.Intn(len(attackOptions))
 		attack := attackOptions[attackIdx]
 
-		maxArmies := attack.from.Armies - 1
+		g.GameState.RLock()
+		fromTerritory := g.getTerritoryByIDLocked(attack.from.ID)
+		toTerritory := g.getTerritoryByIDLocked(attack.to.ID)
+
+		if fromTerritory == nil || fromTerritory.Owner != botID {
+			g.GameState.RUnlock()
+			continue
+		}
+
+		if toTerritory == nil || toTerritory.Owner == botID {
+			g.GameState.RUnlock()
+			continue
+		}
+
+		maxArmies := fromTerritory.Armies - 1
+		g.GameState.RUnlock()
+
 		if maxArmies < 1 {
 			continue
 		}
 		attackingArmies := rand.Intn(min(maxArmies, 3)) + 1
-
-		victory, err := g.GameState.Attack(botID, attack.from.ID, attack.to.ID, attackingArmies)
-		if err != nil {
-			log.Printf("Bot attack error: %v", err)
-			continue
-		}
 
 		g.sendBotAction("attack", botID, map[string]any{
 			"from":             attack.from.ID,
@@ -87,10 +88,7 @@ func (g *Game) botAttackPhase(botID string) {
 
 		time.Sleep(500 * time.Millisecond)
 
-		// If conquered, update attack options
-		if victory {
-			attackOptions = g.getBotAttackOptions(botID)
-		}
+		attackOptions = g.getBotAttackOptions(botID)
 	}
 }
 
@@ -106,27 +104,34 @@ func (g *Game) botMovePhase(botID string) {
 		}
 
 		for _, adjID := range from.Adjacent {
-			to := g.getTerritoryByID(adjID)
-			if to != nil && to.Owner == botID {
-				movingArmies := (from.Armies - 1) / 2
-				if movingArmies < 1 {
-					continue
-				}
+			g.GameState.RLock()
+			fromFresh := g.getTerritoryByIDLocked(from.ID)
+			toFresh := g.getTerritoryByIDLocked(adjID)
 
-				if err := g.GameState.Move(botID, from.ID, to.ID, movingArmies); err != nil {
-					log.Printf("Bot move error: %v", err)
-					continue
-				}
-
-				g.sendBotAction("troop_move", botID, map[string]any{
-					"from":          from.ID,
-					"to":            to.ID,
-					"moving_armies": movingArmies,
-				})
-
-				time.Sleep(500 * time.Millisecond)
-				return
+			if fromFresh == nil || fromFresh.Owner != botID || fromFresh.Armies <= 1 {
+				g.GameState.RUnlock()
+				continue
 			}
+			if toFresh == nil || toFresh.Owner != botID {
+				g.GameState.RUnlock()
+				continue
+			}
+
+			movingArmies := (fromFresh.Armies - 1) / 2
+			g.GameState.RUnlock()
+
+			if movingArmies < 1 {
+				continue
+			}
+
+			g.sendBotAction("troop_move", botID, map[string]any{
+				"from":          from.ID,
+				"to":            adjID,
+				"moving_armies": movingArmies,
+			})
+
+			time.Sleep(500 * time.Millisecond)
+			return
 		}
 	}
 }
@@ -151,7 +156,6 @@ func (g *Game) sendBotAction(actionType string, botID string, params map[string]
 		return
 	}
 
-	// Send to broadcast channel (same as human messages)
 	g.broadcast <- jsonMsg
 }
 
@@ -166,28 +170,6 @@ func (g *Game) getBotOwnedTerritories(botID string) []*Territory {
 		}
 	}
 	return owned
-}
-
-func (g *Game) getBotBorderTerritories(botID string) []*Territory {
-	g.GameState.RLock()
-	defer g.GameState.RUnlock()
-
-	borders := make([]*Territory, 0)
-	for _, t := range g.GameState.Territories {
-		if t.Owner != botID {
-			continue
-		}
-
-		// Check if any adjacent territory is owned by someone else
-		for _, adjID := range t.Adjacent {
-			adjTerritory := g.getTerritoryByIDLocked(adjID)
-			if adjTerritory != nil && adjTerritory.Owner != botID {
-				borders = append(borders, t)
-				break
-			}
-		}
-	}
-	return borders
 }
 
 type attackOption struct {
@@ -205,7 +187,6 @@ func (g *Game) getBotAttackOptions(botID string) []attackOption {
 			continue
 		}
 
-		// Check adjacent territories for enemies
 		for _, adjID := range t.Adjacent {
 			adjTerritory := g.getTerritoryByIDLocked(adjID)
 			if adjTerritory != nil && adjTerritory.Owner != botID {
@@ -217,12 +198,6 @@ func (g *Game) getBotAttackOptions(botID string) []attackOption {
 		}
 	}
 	return options
-}
-
-func (g *Game) getTerritoryByID(territoryID string) *Territory {
-	g.GameState.RLock()
-	defer g.GameState.RUnlock()
-	return g.getTerritoryByIDLocked(territoryID)
 }
 
 func (g *Game) getTerritoryByIDLocked(territoryID string) *Territory {
