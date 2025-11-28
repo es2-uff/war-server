@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"es2.uff/war-server/internal/domain/battle"
+	"es2.uff/war-server/internal/domain/card"
 	"es2.uff/war-server/internal/domain/game"
 	"es2.uff/war-server/internal/domain/objective"
 	"es2.uff/war-server/internal/domain/player"
@@ -14,17 +15,17 @@ import (
 )
 
 type Player struct {
-	ID            string `json:"id"`
-	Username      string `json:"username"`
-	Armies        int    `json:"armies"`
-	Color         string `json:"color"`
-	IsReady       bool   `json:"is_ready"`
-	IsOwner       bool   `json:"is_owner"`
-	ObjectiveID   int    `json:"objective_id"`
-	ObjectiveDesc string `json:"objective_desc"`
+	ID            string       `json:"id"`
+	Username      string       `json:"username"`
+	Armies        int          `json:"armies"`
+	Color         string       `json:"color"`
+	IsReady       bool         `json:"is_ready"`
+	IsOwner       bool         `json:"is_owner"`
+	ObjectiveID   int          `json:"objective_id"`
+	ObjectiveDesc string       `json:"objective_desc"`
+	CardsInHand   []*card.Card `json:"cards_in_hand"`
 }
 
-// Territory represents a territory on the game board
 type Territory struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -42,6 +43,8 @@ type GameState struct {
 	Territories               []*Territory       `json:"territories"`
 	CurrentTurn               string             `json:"current_turn"` // Player ID whose turn it is
 	OwnerID                   string             `json:"owner_id"`
+	Deck                      *card.Deck         `json:"-"`
+	TradesCount               int                `json:"trades_count"`
 }
 
 func NewGameState(roomID string) *GameState {
@@ -50,6 +53,7 @@ func NewGameState(roomID string) *GameState {
 		Players:     make(map[string]*Player),
 		Territories: nil,
 		CurrentTurn: "",
+		TradesCount: 2,
 	}
 
 	return gs
@@ -75,8 +79,7 @@ func (gs *GameState) StartGame() {
 
 	domainTerritories := game.InstantiateGameTerritories(domainPlayers)
 
-	// First pass: create territories with IDs
-	territoryIDMap := make(map[int]string) // Maps domain TerritoryID to WebSocket UUID
+	territoryIDMap := make(map[int]string)
 	gs.Territories = make([]*Territory, 0, len(domainTerritories))
 
 	for _, dt := range domainTerritories {
@@ -85,12 +88,14 @@ func (gs *GameState) StartGame() {
 
 		wsTerr := &Territory{
 			ID:         wsID,
-			Name:       getTerritoryName(dt.TerritoryID),
+			Name:       territory.TerritoryNameMap[territory.TerritoryID(dt.TerritoryID)],
 			Owner:      dt.OwnerID.String(),
 			OwnerColor: dt.OwnerColor,
 			Armies:     dt.ArmyQuantity,
-			Adjacent:   []string{}, // Will be populated in second pass
+			Adjacent:   []string{},
 		}
+
+		fmt.Println(*wsTerr)
 		gs.Territories = append(gs.Territories, wsTerr)
 	}
 
@@ -110,7 +115,6 @@ func (gs *GameState) StartGame() {
 
 	game.AssignObjectivesToPlayers(domainPlayers)
 
-	// Update WebSocket players with their objectives
 	for _, domainPlayer := range domainPlayers {
 		wsPlayer := gs.Players[domainPlayer.ID.String()]
 		if wsPlayer != nil {
@@ -121,24 +125,11 @@ func (gs *GameState) StartGame() {
 		}
 	}
 
+	gs.Deck = card.NewDeck()
+	gs.Deck.Shuffle()
+
 	gs.getTurnAdditionalTroopsLocked(domainPlayers[0].ID.String())
 	gs.CurrentTurn = domainPlayers[0].ID.String()
-}
-
-func getTerritoryName(territoryID int) string {
-	// Map territory IDs to names
-	names := map[int]string{
-		0: "Algeria", 1: "Egypt", 2: "Sudan", 3: "Congo", 4: "South Africa", 5: "Madagascar",
-		6: "England", 7: "Iceland", 8: "Sweden", 9: "Moscow", 10: "Germany", 11: "Poland", 12: "Portugal",
-		13: "Middle East", 14: "India", 15: "Vietnam", 16: "China", 17: "Aral", 18: "Omsk", 19: "Dudinka", 20: "Siberia", 21: "Tchita", 22: "Mongolia", 23: "Japan", 24: "Vladivostok",
-		25: "Australia", 26: "New Guinea", 27: "Sumatra", 28: "Borneo",
-		29: "Brazil", 30: "Argentina", 31: "Chile", 32: "Colombia",
-		33: "Mexico", 34: "California", 35: "New York", 36: "Labrador", 37: "Ottawa", 38: "Vancouver", 39: "Mackenzie", 40: "Alaska", 41: "Greenland",
-	}
-	if name, ok := names[territoryID]; ok {
-		return name
-	}
-	return "Unknown"
 }
 
 func (gs *GameState) Move(playerID, fromTerritoryID, toTerritoryID string, movingArmies int) error {
@@ -183,6 +174,69 @@ func (gs *GameState) Move(playerID, fromTerritoryID, toTerritoryID string, movin
 	toTerritory.Armies += movingArmies
 
 	return nil
+}
+
+func (gs *GameState) Trade(playerID, card1, card2, card3 string) (int, error) {
+	gs.Lock()
+	defer gs.Unlock()
+
+	player := gs.Players[playerID]
+	if player == nil {
+		return 0, fmt.Errorf("player not found")
+	}
+
+	cardNames := []string{card1, card2, card3}
+	cardsToRemove := make([]*card.Card, 0, 3)
+
+	for _, cardName := range cardNames {
+		found := false
+		for _, playerCard := range player.CardsInHand {
+			if playerCard.TerritoryName == cardName {
+				cardsToRemove = append(cardsToRemove, playerCard)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, fmt.Errorf("card %s not found in player's hand", cardName)
+		}
+	}
+
+	if len(cardsToRemove) != 3 {
+		return 0, fmt.Errorf("must trade exactly 3 cards")
+	}
+
+	firstShape := cardsToRemove[0].Shape
+	for _, c := range cardsToRemove {
+		if c.Shape != firstShape {
+			return 0, fmt.Errorf("all cards must have the same shape")
+		}
+	}
+
+	newHand := make([]*card.Card, 0, len(player.CardsInHand)-3)
+	for _, playerCard := range player.CardsInHand {
+		shouldRemove := false
+		for _, removeCard := range cardsToRemove {
+			if playerCard.TerritoryName == removeCard.TerritoryName {
+				shouldRemove = true
+				break
+			}
+		}
+		if !shouldRemove {
+			newHand = append(newHand, playerCard)
+		}
+	}
+	player.CardsInHand = newHand
+
+	for _, c := range cardsToRemove {
+		gs.Deck.AddToBottom(*c)
+	}
+
+	troopsReceived := 2 * gs.TradesCount
+	player.Armies += troopsReceived
+	gs.TradesCount++
+
+	return troopsReceived, nil
 }
 
 func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, attackingArmies int) (bool, error) {
@@ -239,7 +293,11 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, att
 		toTerritory.OwnerColor = fromTerritory.OwnerColor
 		toTerritory.Armies = attackingArmies - attackerLosses
 		fromTerritory.Armies -= (attackingArmies - attackerLosses)
-		return attackResult, nil
+
+		drawnCard := gs.Deck.Draw()
+		if drawnCard != nil {
+			gs.Players[playerID].CardsInHand = append(gs.Players[playerID].CardsInHand, drawnCard)
+		}
 	}
 
 	return attackResult, nil

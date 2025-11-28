@@ -1,7 +1,14 @@
 package territory
 
 type Region int
+type Shape int
 type TerritoryID int
+
+const (
+	Circle Shape = iota
+	Square
+	Triangle
+)
 
 const (
 	Europe Region = iota
@@ -193,4 +200,110 @@ var TerritoryAdjacencyMap = map[TerritoryID][]TerritoryID{
 	Mackenzie:  {Ottawa, Vancouver, Alaska, Dudinka, Greenland},
 	Alaska:     {Vancouver, Mackenzie, Siberia},
 	Greenland:  {Iceland, Labrador, Mackenzie},
+}
+
+var TerritoryShapeMap = map[TerritoryID]Shape{
+	Algeria:     Circle,
+	Egypt:       Square,
+	Sudan:       Triangle,
+	Congo:       Circle,
+	SouthAfrica: Square,
+	Madagascar:  Triangle,
+
+	England:  Circle,
+	Iceland:  Square,
+	Sweden:   Triangle,
+	Moscow:   Circle,
+	Germany:  Square,
+	Poland:   Triangle,
+	Portugal: Square,
+
+	MiddleEast: Circle,
+	India:      Square,
+	Vietnam:    Triangle,
+	China:      Circle,
+	Aral:       Square,
+	Omsk:       Triangle,
+	Dudinka:    Circle,
+	Siberia:    Square,
+	Tchita:     Triangle,
+	Mongolia:   Circle,
+	Japan:      Square,
+	Vladvostok: Triangle,
+
+	Australia: Circle,
+	NewGuinea: Square,
+	Sumatra:   Triangle,
+	Borneo:    Square,
+
+	Brazil:    Circle,
+	Argentina: Square,
+	Chile:     Triangle,
+	Colombia:  Square,
+
+	Mexico:     Circle,
+	California: Square,
+	NewYork:    Triangle,
+	Labrador:   Circle,
+	Ottawa:     Square,
+	Vancouver:  Triangle,
+	Mackenzie:  Circle,
+	Alaska:     Square,
+	Greenland:  Triangle,
+}
+
+var TerritoryNameMap = map[TerritoryID]string{
+	// Africa
+	Algeria:     "Argélia",
+	Egypt:       "Egito",
+	Sudan:       "Sudão",
+	Congo:       "Congo",
+	SouthAfrica: "África do Sul",
+	Madagascar:  "Madagascar",
+
+	// Europe
+	England:  "Inglaterra",
+	Iceland:  "Islândia",
+	Sweden:   "Suécia",
+	Moscow:   "Moscou",
+	Germany:  "Alemanha",
+	Poland:   "Polônia",
+	Portugal: "Portugal",
+
+	// Asia
+	MiddleEast: "Oriente Médio",
+	India:      "Índia",
+	Vietnam:    "Vietnã",
+	China:      "China",
+	Aral:       "Aral",
+	Omsk:       "Omsk",
+	Dudinka:    "Dudinka",
+	Siberia:    "Sibéria",
+	Tchita:     "Tchita",
+	Mongolia:   "Mongólia",
+	Japan:      "Japão",
+	Vladvostok: "Vladivostok",
+
+	// Oceania
+	Australia: "Austrália",
+	NewGuinea: "Nova Guiné",
+	Sumatra:   "Sumatra",
+	Borneo:    "Bornéu",
+
+	// South America
+	Brazil:    "Brasil",
+	Argentina: "Argentina",
+	Chile:     "Chile",
+	Colombia:  "Colômbia",
+
+	// North America
+	Mexico:     "México",
+	California: "Califórnia",
+	NewYork:    "Nova York",
+	Labrador:   "Labrador",
+	Ottawa:     "Ottawa",
+	Vancouver:  "Vancouver",
+	Mackenzie:  "Mackenzie",
+	Alaska:     "Alasca",
+	Greenland:  "Groenlândia",
 }
