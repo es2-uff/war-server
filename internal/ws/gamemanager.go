@@ -117,8 +117,8 @@ func (g *Game) handleMessage(message []byte) {
 	case "attack":
 		from, _ := msg["from"].(string)
 		to, _ := msg["to"].(string)
-		armies, _ := msg["armies"].(float64)
-		if err := g.GameState.Attack(playerID, from, to, int(armies)); err != nil {
+		armiesFloat, _ := msg["attacking_armies"].(float64)
+		if err := g.GameState.Attack(playerID, from, to, int(armiesFloat)); err != nil {
 			log.Printf("Error processing attack: %v", err)
 		}
 	case "troop_assign":

@@ -2,11 +2,14 @@ package ws
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
+	"es2.uff/war-server/internal/domain/battle"
 	"es2.uff/war-server/internal/domain/game"
 	"es2.uff/war-server/internal/domain/objective"
 	"es2.uff/war-server/internal/domain/player"
+	"es2.uff/war-server/internal/domain/territory"
 	"github.com/google/uuid"
 )
 
@@ -72,17 +75,37 @@ func (gs *GameState) StartGame() {
 
 	domainTerritories := game.InstantiateGameTerritories(domainPlayers)
 
+	// First pass: create territories with IDs
+	territoryIDMap := make(map[int]string) // Maps domain TerritoryID to WebSocket UUID
 	gs.Territories = make([]*Territory, 0, len(domainTerritories))
+
 	for _, dt := range domainTerritories {
+		wsID := uuid.NewString()
+		territoryIDMap[dt.TerritoryID] = wsID
+
 		wsTerr := &Territory{
-			ID:         uuid.NewString(),
+			ID:         wsID,
 			Name:       getTerritoryName(dt.TerritoryID),
 			Owner:      dt.OwnerID.String(),
 			OwnerColor: dt.OwnerColor,
 			Armies:     dt.ArmyQuantity,
-			Adjacent:   []string{}, // TODO: implement adjacency
+			Adjacent:   []string{}, // Will be populated in second pass
 		}
 		gs.Territories = append(gs.Territories, wsTerr)
+	}
+
+	// Second pass: populate adjacency using the TerritoryAdjacencyMap
+	for i, dt := range domainTerritories {
+		adjacentTerritoryIDs := territory.TerritoryAdjacencyMap[territory.TerritoryID(dt.TerritoryID)]
+		adjacentWSIDs := make([]string, 0, len(adjacentTerritoryIDs))
+
+		for _, adjID := range adjacentTerritoryIDs {
+			if wsID, exists := territoryIDMap[int(adjID)]; exists {
+				adjacentWSIDs = append(adjacentWSIDs, wsID)
+			}
+		}
+
+		gs.Territories[i].Adjacent = adjacentWSIDs
 	}
 
 	game.AssignObjectivesToPlayers(domainPlayers)
@@ -118,11 +141,10 @@ func getTerritoryName(territoryID int) string {
 	return "Unknown"
 }
 
-func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, armies int) error {
+func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, attackingArmies int) error {
 	gs.Lock()
 	defer gs.Unlock()
 
-	// Find territories
 	var fromTerritory, toTerritory *Territory
 	for _, t := range gs.Territories {
 		if t.ID == fromTerritoryID {
@@ -134,27 +156,44 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, arm
 	}
 
 	if fromTerritory == nil || toTerritory == nil {
-		return nil // Territories not found
+		return fmt.Errorf("territory not found")
 	}
 
 	if fromTerritory.Owner != playerID {
-		return nil // Not the owner
+		return fmt.Errorf("not the owner of attacking territory")
 	}
 
-	if fromTerritory.Armies <= armies {
-		return nil // Not enough armies
+	if toTerritory.Owner == playerID {
+		return fmt.Errorf("cannot attack your own territory")
 	}
 
-	// Simple battle: compare armies
-	if armies > toTerritory.Armies {
-		// Attacker wins
+	if fromTerritory.Armies <= attackingArmies {
+		return fmt.Errorf("not enough armies (must leave 1 for occupation)")
+	}
+
+	if attackingArmies > 3 || attackingArmies < 1 {
+		return fmt.Errorf("attacking armies must be between 1 and 3")
+	}
+
+	if !slices.Contains(fromTerritory.Adjacent, toTerritoryID) {
+		return fmt.Errorf("territories are not adjacent")
+	}
+
+	defendingArmies := min(toTerritory.Armies, 3)
+
+	attackerDice := battle.RollDice(attackingArmies)
+	defenderDice := battle.RollDice(defendingArmies)
+
+	attackerLosses, defenderLosses := battle.CompareDice(attackerDice, defenderDice)
+
+	fromTerritory.Armies -= attackerLosses
+	toTerritory.Armies -= defenderLosses
+
+	if toTerritory.Armies == 0 {
 		toTerritory.Owner = playerID
-		toTerritory.Armies = armies - toTerritory.Armies
-		fromTerritory.Armies -= armies
-	} else {
-		// Defender wins
-		fromTerritory.Armies -= armies
-		toTerritory.Armies -= armies
+		toTerritory.OwnerColor = fromTerritory.OwnerColor
+		toTerritory.Armies = attackingArmies - attackerLosses
+		fromTerritory.Armies -= (attackingArmies - attackerLosses)
 	}
 
 	return nil
