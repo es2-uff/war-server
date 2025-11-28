@@ -185,7 +185,7 @@ func (gs *GameState) Move(playerID, fromTerritoryID, toTerritoryID string, movin
 	return nil
 }
 
-func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, attackingArmies int) error {
+func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, attackingArmies int) (bool, error) {
 	gs.Lock()
 	defer gs.Unlock()
 
@@ -200,27 +200,27 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, att
 	}
 
 	if fromTerritory == nil || toTerritory == nil {
-		return fmt.Errorf("territory not found")
+		return false, fmt.Errorf("territory not found")
 	}
 
 	if fromTerritory.Owner != playerID {
-		return fmt.Errorf("not the owner of attacking territory")
+		return false, fmt.Errorf("not the owner of attacking territory")
 	}
 
 	if toTerritory.Owner == playerID {
-		return fmt.Errorf("cannot attack your own territory")
+		return false, fmt.Errorf("cannot attack your own territory")
 	}
 
 	if fromTerritory.Armies <= attackingArmies {
-		return fmt.Errorf("not enough armies (must leave 1 for occupation)")
+		return false, fmt.Errorf("not enough armies (must leave 1 for occupation)")
 	}
 
 	if attackingArmies > 3 || attackingArmies < 1 {
-		return fmt.Errorf("attacking armies must be between 1 and 3")
+		return false, fmt.Errorf("attacking armies must be between 1 and 3")
 	}
 
 	if !slices.Contains(fromTerritory.Adjacent, toTerritoryID) {
-		return fmt.Errorf("territories are not adjacent")
+		return false, fmt.Errorf("territories are not adjacent")
 	}
 
 	defendingArmies := min(toTerritory.Armies, 3)
@@ -229,6 +229,7 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, att
 	defenderDice := battle.RollDice(defendingArmies)
 
 	attackerLosses, defenderLosses := battle.CompareDice(attackerDice, defenderDice)
+	attackResult := attackerLosses < defenderLosses
 
 	fromTerritory.Armies -= attackerLosses
 	toTerritory.Armies -= defenderLosses
@@ -238,9 +239,10 @@ func (gs *GameState) Attack(playerID, fromTerritoryID, toTerritoryID string, att
 		toTerritory.OwnerColor = fromTerritory.OwnerColor
 		toTerritory.Armies = attackingArmies - attackerLosses
 		fromTerritory.Armies -= (attackingArmies - attackerLosses)
+		return attackResult, nil
 	}
 
-	return nil
+	return attackResult, nil
 }
 
 func (gs *GameState) Deploy(playerID, territoryID string) error {
