@@ -1,39 +1,14 @@
-.PHONY: docker-dev docker-hot dev build docker-down docker-clean docker-fclean
+.PHONY: build-amd64 build-arm64 build-all
 
-# Load environment variables
--include .env
-export
+IMAGE_NAME ?= coutito/es2
+TAG ?= latest
 
-# (DOCKER STATIC BUILD)
-docker-dev:
-	docker-compose --profile dev up -d
+build:
+	docker buildx build --platform linux/amd64 -t $(IMAGE_NAME):$(TAG)-amd64 .
 
-# (docker hot reload)
-docker-hot:
-	docker-compose --profile hot up -d
+# Build for AWS
+build-aws:
+	docker buildx build --platform linux/arm64 -t $(IMAGE_NAME):$(TAG)-arm64 .
 
-docker-down:
-	docker-compose --profile hot down
-	docker-compose --profile dev down
-
-docker-clean: docker-down
-	@if [ -n "$$(docker images -q es2_server:latest)" ]; then \
-		docker rmi es2_server:latest; \
-	fi
-
-docker-fclean: docker-clean
-	@if [ -n "$$(docker images -q redis:7-alpine)" ]; then \
-		docker rmi redis:7-alpine; \
-	fi
-	docker volume prune -f
-	docker network prune -f
-
-
-# (HOST MACHINE HOT RELOAD IF EXISTS)
-dev:
-	@if command -v air > /dev/null; then \
-		air; \
-	else \
-		echo "Air not installed. Running without hot reload..."; \
-		go run cmd/api/main.go; \
-	fi
+build-all:
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_NAME):$(TAG) .

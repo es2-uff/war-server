@@ -12,7 +12,7 @@ RUN go mod verify
 
 COPY . .
 
-RUN GOOS=linux GOARCH=amd64 go build -ldflags "-w -s" -o ./tmp/es2-server ./cmd/main.go
+RUN go build -ldflags "-w -s" -o ./tmp/es2-server ./cmd/main.go
 
 # RUN
 FROM scratch
